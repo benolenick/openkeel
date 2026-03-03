@@ -796,6 +796,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     env = os.environ.copy()
     env["SHELL"] = exec_path
     env["OPENKEEL_EXEC"] = exec_path  # for autopwn CommandRunner integration
+    env["CLAUDE_CODE_SHELL"] = exec_path  # Claude Code ignores $SHELL, uses this instead
     env["OPENKEEL_PROFILE"] = profile_name
     env["OPENKEEL_SESSION_ID"] = session_id
     env["OPENKEEL_LOG_DIR"] = str(log_dir)
