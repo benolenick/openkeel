@@ -83,6 +83,19 @@ def main() -> None:
     # 1. Classify
     result = classify(command, profile)
 
+    # 1b. Guardian check (after classification, before timebox)
+    should_check = (
+        (profile.guardian.check_on == "gated" and result.tier == "gated" and result.action == "allow")
+        or (profile.guardian.check_on == "all" and result.action == "allow")
+    )
+    if should_check and profile.guardian.enabled:
+        from openkeel.integrations.guardian import GuardianClient
+        guardian = GuardianClient(profile.guardian)
+        allowed, explanation = guardian.check_command(command)
+        if not allowed:
+            result.action = "deny"
+            result.message = f"Guardian blocked: {explanation}"
+
     # 2. Check timebox (if activity matched)
     timebox_action = "allow"
     timebox_message = ""
@@ -140,7 +153,11 @@ def main() -> None:
     if injection:
         print(injection, file=sys.stderr)
 
-    # 7. Execute the command
+    # 7. Check for dynamic timer registration in command text
+    if "OPENKEEL-TIMER:" in command:
+        _register_dynamic_timer(command)
+
+    # 8. Execute the command
     _exec_passthrough(command)
 
 
@@ -169,6 +186,49 @@ def _handle_blocked(
             },
             session_id=session_id,
         )
+
+
+def _register_dynamic_timer(line: str) -> None:
+    """If line contains OPENKEEL-TIMER:, register it in state/timers.json."""
+    if "OPENKEEL-TIMER:" not in line:
+        return
+
+    from openkeel.core.timers import parse_dynamic_timer
+    import json
+
+    timer = parse_dynamic_timer(line)
+    if not timer:
+        return
+
+    state_dir = os.environ.get("OPENKEEL_LOG_DIR", "")
+    if not state_dir:
+        return
+
+    timers_path = os.path.join(state_dir, "state", "timers.json")
+    existing = []
+    if os.path.exists(timers_path):
+        try:
+            existing = json.loads(open(timers_path, encoding="utf-8").read())
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Replace or append
+    existing = [t for t in existing if t.get("name") != timer.name]
+    existing.append({
+        "name": timer.name,
+        "interval_seconds": timer.interval_seconds,
+        "command": timer.command,
+        "expect": timer.expect,
+        "on_fail": timer.on_fail,
+        "on_fail_command": timer.on_fail_command,
+    })
+
+    try:
+        with open(timers_path, "w", encoding="utf-8") as fh:
+            json.dump(existing, fh, indent=2)
+        print(f"[openkeel] Timer registered: {timer.name} (every {timer.interval_seconds // 60}m)", file=sys.stderr)
+    except OSError as exc:
+        print(f"[openkeel] WARNING: Could not save timer: {exc}", file=sys.stderr)
 
 
 def _exec_passthrough(command: str) -> None:

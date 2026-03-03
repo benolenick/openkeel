@@ -795,6 +795,7 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Build environment
     env = os.environ.copy()
     env["SHELL"] = exec_path
+    env["OPENKEEL_EXEC"] = exec_path  # for autopwn CommandRunner integration
     env["OPENKEEL_PROFILE"] = profile_name
     env["OPENKEEL_SESSION_ID"] = session_id
     env["OPENKEEL_LOG_DIR"] = str(log_dir)
@@ -809,6 +810,16 @@ def cmd_run(args: argparse.Namespace) -> None:
         cmd = sandbox_args + cmd
         print("  Sandbox:  enabled (systemd-run)")
 
+    # Start timer manager
+    from openkeel.core.timers import TimerManager
+    timer_mgr = TimerManager(
+        timers=profile.timers,
+        log_path=str(log_dir / "session.jsonl"),
+        session_id=session_id,
+        state_dir=str(state_dir),
+    )
+    timer_mgr.start()
+
     # Launch agent subprocess
     exit_code = 0
     try:
@@ -821,6 +832,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         print(f"ERROR: Agent command not found: {agent_cmd[0]}")
         exit_code = 127
     finally:
+        # Stop timer manager
+        timer_mgr.stop()
+
         # End session in DB
         status = "completed" if exit_code == 0 else "interrupted" if exit_code == 130 else "failed"
         end_session(conn, session_id, status=status)
