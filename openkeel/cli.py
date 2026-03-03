@@ -1097,6 +1097,95 @@ def _read_session_profile(session_dir: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# remember / recall / memory
+# ---------------------------------------------------------------------------
+
+
+def _get_memory():
+    from openkeel.integrations.local_memory import LocalMemory
+    return LocalMemory()
+
+
+def cmd_remember(args: argparse.Namespace) -> None:
+    mem = _get_memory()
+    fact_id = mem.remember(
+        args.fact,
+        project=args.project,
+        tag=args.tag,
+        source=args.source,
+    )
+    print(f"Remembered #{fact_id}: {args.fact[:80]}")
+    if args.project:
+        print(f"  project: {args.project}")
+    if args.tag:
+        print(f"  tag: {args.tag}")
+    mem.close()
+
+
+def cmd_recall(args: argparse.Namespace) -> None:
+    mem = _get_memory()
+    results = mem.recall(args.query, top_k=args.top, project=args.project)
+    if not results:
+        print(f"No results for: {args.query}")
+        mem.close()
+        return
+    print(f"Results for: {args.query}\n")
+    for r in results:
+        project_tag = f" [{r['project']}]" if r['project'] else ""
+        tag_str = f" #{r['tag']}" if r['tag'] else ""
+        print(f"  #{r['id']} (score: {r['score']:.2f}){project_tag}{tag_str}")
+        print(f"    {r['text'][:120]}")
+        print()
+    mem.close()
+
+
+def cmd_memory_stats(args: argparse.Namespace) -> None:
+    mem = _get_memory()
+    s = mem.stats()
+    print(f"Memory: {s['total_facts']} facts in {s['db_path']} ({s['db_size_kb']} KB)")
+    if s['projects']:
+        print("\n  Projects:")
+        for p, cnt in s['projects'].items():
+            print(f"    {p}: {cnt}")
+    if s['tags']:
+        print("\n  Tags:")
+        for t, cnt in s['tags'].items():
+            print(f"    {t}: {cnt}")
+    mem.close()
+
+
+def cmd_memory_recent(args: argparse.Namespace) -> None:
+    mem = _get_memory()
+    results = mem.recent(limit=args.limit, project=args.project)
+    if not results:
+        print("No facts stored yet.")
+        mem.close()
+        return
+    import datetime
+    for r in results:
+        ts = datetime.datetime.fromtimestamp(r['created_at']).strftime('%Y-%m-%d %H:%M')
+        project_tag = f" [{r['project']}]" if r['project'] else ""
+        tag_str = f" #{r['tag']}" if r['tag'] else ""
+        print(f"  #{r['id']} {ts}{project_tag}{tag_str}")
+        print(f"    {r['text'][:120]}")
+        print()
+    mem.close()
+
+
+def cmd_memory_export(args: argparse.Namespace) -> None:
+    mem = _get_memory()
+    print(mem.export_jsonl())
+    mem.close()
+
+
+def cmd_memory_delete(args: argparse.Namespace) -> None:
+    mem = _get_memory()
+    mem.delete(args.id)
+    print(f"Deleted fact #{args.id}")
+    mem.close()
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1247,6 +1336,41 @@ def main() -> None:
     p_phase_next.add_argument("--session", required=True, help="Session ID.")
     p_phase_next.add_argument("--force", action="store_true", help="Skip gate checks.")
     p_phase_next.set_defaults(func=cmd_phase_next)
+
+    # -- remember / recall / memory ------------------------------------------
+
+    p_remember = sub.add_parser("remember", help="Store a fact in local memory.")
+    p_remember.add_argument("fact", help="The fact to remember.")
+    p_remember.add_argument("--project", "-p", default="", help="Project name.")
+    p_remember.add_argument("--tag", "-t", default="", help="Tag (e.g. decision, bug, note).")
+    p_remember.add_argument("--source", default="", help="Source of the fact.")
+    p_remember.set_defaults(func=cmd_remember)
+
+    p_recall = sub.add_parser("recall", help="Search local memory.")
+    p_recall.add_argument("query", help="Search query.")
+    p_recall.add_argument("--top", "-n", type=int, default=5, help="Number of results.")
+    p_recall.add_argument("--project", "-p", default="", help="Filter by project.")
+    p_recall.set_defaults(func=cmd_recall)
+
+    p_memory = sub.add_parser("memory", help="Memory management.")
+    memory_sub = p_memory.add_subparsers(dest="memory_command", metavar="<subcommand>")
+
+    p_mem_stats = memory_sub.add_parser("stats", help="Show memory statistics.")
+    p_mem_stats.set_defaults(func=cmd_memory_stats)
+
+    p_mem_recent = memory_sub.add_parser("recent", help="Show recent facts.")
+    p_mem_recent.add_argument("--limit", "-n", type=int, default=10)
+    p_mem_recent.add_argument("--project", "-p", default="")
+    p_mem_recent.set_defaults(func=cmd_memory_recent)
+
+    p_mem_export = memory_sub.add_parser("export", help="Export all facts as JSONL.")
+    p_mem_export.set_defaults(func=cmd_memory_export)
+
+    p_mem_delete = memory_sub.add_parser("delete", help="Delete a fact by ID.")
+    p_mem_delete.add_argument("id", type=int, help="Fact ID to delete.")
+    p_mem_delete.set_defaults(func=cmd_memory_delete)
+
+    p_memory.set_defaults(func=lambda a: cmd_memory_stats(a) if not getattr(a, 'memory_command', None) else None)
 
     args = parser.parse_args()
     args.func(args)
