@@ -794,7 +794,6 @@ def cmd_run(args: argparse.Namespace) -> None:
 
     # Build environment
     env = os.environ.copy()
-    env["SHELL"] = exec_path
     env["OPENKEEL_EXEC"] = exec_path  # for autopwn CommandRunner integration
     env["CLAUDE_CODE_SHELL"] = exec_path  # Claude Code ignores $SHELL, uses this instead
     env["OPENKEEL_PROFILE"] = profile_name
@@ -803,6 +802,10 @@ def cmd_run(args: argparse.Namespace) -> None:
     # Preserve the real shell for exec.py to use
     if "SHELL" in os.environ:
         env["OPENKEEL_REAL_SHELL"] = os.environ["SHELL"]
+    # Only override SHELL on Linux — on Windows, MSYS2/Git Bash uses SHELL
+    # internally for fork() and setting it to a non-bash path causes crashes
+    if sys.platform != "win32":
+        env["SHELL"] = exec_path
 
     # Build command with optional sandbox
     cmd = list(agent_cmd)
