@@ -4,3 +4,6 @@ __pycache__/
 dist/
 build/
 .eggs/
+
+# Local-only profiles (not shipped to GitHub)
+profiles/pentesting.yaml

@@ -1,0 +1,242 @@
+# OpenKeel v0.2 — Infrastructure Monitoring Profile
+# Designed for read-only infrastructure health, log analysis, and metric collection.
+# Default action is DENY — only explicitly whitelisted observability commands are allowed.
+# No write operations to system files; SSH to monitored hosts is gated.
+
+name: monitoring
+description: >
+  Infrastructure monitoring profile. Strict read-only posture: blocks all writes and
+  destructive commands, gates SSH and API calls to monitored hosts, and permits only
+  well-known observability tooling. Continuous operation — no phases defined.
+version: "0.2"
+
+# ---------------------------------------------------------------------------
+# Command classification tiers
+# ---------------------------------------------------------------------------
+
+blocked:
+  patterns:
+    # Any form of rm (no deletion in monitoring context)
+    - '\brm\s+'
+    # Write-redirect operators to system paths
+    - '(?i)(>|>>)\s*/etc/'
+    - '(?i)(>|>>)\s*/boot/'
+    - '(?i)(>|>>)\s*/sys/'
+    - '(?i)(>|>>)\s*/proc/'
+    - '(?i)(>|>>)\s*/var/log/'
+    # File overwrite utilities targeting system paths
+    - '(?i)\btee\s+[^|&;]*/etc/'
+    - '(?i)\btee\s+[^|&;]*/boot/'
+    - '(?i)\btruncate\s+'
+    # Disk and filesystem destructive ops
+    - '(?i)\b(mkfs|mke2fs|mkswap|fdisk|parted)\b'
+    - '(?i)\bdd\s+.*of=/dev/'
+    # System power / daemon control (stop/disable only — status allowed in safe tier)
+    - '(?i)\bsystemctl\s+(stop|disable|mask|kill|reset-failed)\b'
+    - '(?i)\bservice\s+\S+\s+(stop|restart|disable)\b'
+    - '(?i)\b(shutdown|poweroff|halt|reboot|init\s+[06])\b'
+    # Package management (no installs during monitoring)
+    - '(?i)\b(apt|apt-get|yum|dnf|pacman|brew)\s+(install|remove|purge|autoremove)\b'
+    - '(?i)\bpip\s+install\b'
+    # Write-mode database commands
+    - '(?i)\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE)\s+\b'
+    # chmod / chown on system paths
+    - '(?i)\bchmod\s+'
+    - '(?i)\bchown\s+'
+    # Editor invocations (no editing in monitoring)
+    - '(?i)\b(vim|nvim|nano|emacs|vi)\s+(/etc|/boot|/sys|/proc|/var/log)'
+    # iptables / nftables write operations
+    - '(?i)\b(iptables|nftables|nft|ufw)\s+(-A|-D|-I|-F|-X|-P|add|delete|insert|flush)\b'
+  message: "BLOCKED by monitoring profile: write and destructive operations are not permitted."
+
+gated:
+  patterns:
+    # SSH to any host (must be a declared monitored host)
+    - '\bssh\s+\S'
+    - '\bscp\s+'
+    # curl/wget — all requests gated for review
+    - '(?i)\b(curl|wget)\s'
+    # REST/GraphQL API calls
+    - '(?i)\bcurl\s+[^|&;]*-X\s+(POST|PUT|DELETE|PATCH)\b'
+    - '(?i)\bcurl\s+[^|&;]*--request\s+(POST|PUT|DELETE|PATCH)\b'
+    # Prometheus/InfluxDB write APIs
+    - '(?i)localhost:(9090|8086|9091)/api\S*(write|push|receive)'
+    # AWS/GCP/Azure CLI (could make API calls)
+    - '(?i)\b(aws|gcloud|az)\s'
+    # Kubernetes kubectl with write verbs
+    - '(?i)\bkubectl\s+(apply|delete|create|patch|scale|rollout|exec)\b'
+    # Ansible (could make changes on remote hosts)
+    - '(?i)\b(ansible|ansible-playbook)\s'
+  message: "GATED by monitoring profile: outbound connection or API call requires host scope check."
+
+safe:
+  patterns:
+    # HTTP GET requests (read-only)
+    - '^\s*curl\s+(?!.*\s-X\s+(POST|PUT|DELETE|PATCH))(?!.*\s--request\s+(POST|PUT|DELETE|PATCH))[^|&;]*https?://'
+    - '^\s*curl\s+(?!.*\s-X\s+(POST|PUT|DELETE|PATCH))(?!.*\s--request\s+(POST|PUT|DELETE|PATCH))[^|&;]*localhost'
+    - '^\s*curl\s+(?!.*\s-X\s+(POST|PUT|DELETE|PATCH))(?!.*\s--request\s+(POST|PUT|DELETE|PATCH))[^|&;]*127\.0\.0\.'
+    # wget GET only
+    - '^\s*wget\s+(?!.*-O\s+/)(--spider\s+|--server-response\s+|-q\s+)?https?://'
+    # Connectivity checks
+    - '^\s*(ping|ping6|fping)\s'
+    - '^\s*(traceroute|tracepath|mtr)\s'
+    - '^\s*(dig|nslookup|host|whois)\s'
+    - '^\s*nc\s+-z\s'
+    # System resource monitoring
+    - '^\s*(top|htop|atop|glances|btop)\b'
+    - '^\s*(free|vmstat|slabtop)\b'
+    - '^\s*(df|du)\b'
+    - '^\s*(iostat|mpstat|sar)\b'
+    - '^\s*(ps|pstree|pidstat)\b'
+    - '^\s*(netstat|ss|lsof)\b'
+    - '^\s*ip\s+(a|addr|link|route|neigh|stats)\b'
+    - '^\s*ifconfig\b'
+    # Log inspection (read-only)
+    - '^\s*journalctl\b'
+    - '^\s*(cat|less|more|head|tail)\s+/var/log/'
+    - '^\s*(grep|rg|awk|sed)\s'
+    - '^\s*(zcat|zgrep|zless)\s'
+    # Service status (read-only)
+    - '^\s*systemctl\s+(status|is-active|is-enabled|list-units|list-timers|show)\b'
+    - '^\s*service\s+\S+\s+status\b'
+    # Docker read-only
+    - '^\s*docker\s+(ps|inspect|logs|stats|images|version|info|events|diff)\b'
+    - '^\s*docker[\s-]compose\s+(ps|logs|top|config|version)\b'
+    - '^\s*docker\s+compose\s+(ps|logs|top|config|version)\b'
+    # Kubernetes read-only
+    - '^\s*kubectl\s+(get|describe|logs|top|explain|version|cluster-info|api-resources)\b'
+    - '^\s*helm\s+(list|status|get|version|history)\b'
+    # Prometheus / Grafana read queries
+    - '(?i)localhost:(9090|3000|9093)/api/v\d+/query'
+    # SNMP read
+    - '^\s*(snmpwalk|snmpget|snmptable)\s'
+    # File system inspection
+    - '^\s*(ls|ll|la|dir|find|fd)\b'
+    - '^\s*(cat|less|head|tail|file|stat|wc|sort|uniq|cut)\s'
+    - '^\s*pwd\s*$'
+    # Environment introspection
+    - '^\s*(id|whoami|hostname|uname|uptime|date|env|printenv)\b'
+    # Python read-only scripts
+    - '^\s*(python|python3)\s+\S+\.py\b'
+    # Nagios / Icinga checks
+    - '^\s*(/usr/lib/nagios/plugins/|/usr/lib/monitoring-plugins/)check_\S+\b'
+  message: ""
+
+default_action: deny
+
+# ---------------------------------------------------------------------------
+# Scope constraints
+# ---------------------------------------------------------------------------
+
+scope:
+  # Add hostnames/IPs of monitored infrastructure here
+  allowed_ips:
+    - "192.168.0.0/24"
+    - "10.0.0.0/8"
+  allowed_hostnames:
+    - "*.internal"
+    - "*.local"
+    - "localhost"
+    - "127.0.0.1"
+  allowed_paths:
+    - "/var/log/**"
+    - "/tmp/**"
+    - "/home/*/monitoring/**"
+    - "/opt/monitoring/**"
+  denied_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/etc/sudoers"
+    - "/root/**"
+
+# ---------------------------------------------------------------------------
+# Activities (timeboxing — continuous, no phases)
+# ---------------------------------------------------------------------------
+
+activities:
+  - name: health-check
+    patterns:
+      - '^\s*(ping|curl|nc\s+-z|systemctl\s+status|docker\s+ps)\b'
+      - '^\s*(free|df|top|ps|uptime)\b'
+    timebox_minutes: 10
+    grace_minutes: 2
+
+  - name: log-analysis
+    patterns:
+      - '^\s*(journalctl|cat|less|tail|zcat|zgrep)\s'
+      - '^\s*(grep|rg|awk|sed)\s+[^|&;]*/var/log/'
+    timebox_minutes: 20
+    grace_minutes: 5
+
+  - name: metric-collection
+    patterns:
+      - '^\s*(iostat|mpstat|sar|vmstat|netstat|ss)\b'
+      - '(?i)localhost:(9090|3000|9093)/api/'
+      - '^\s*(snmpwalk|snmpget)\s'
+    timebox_minutes: 15
+    grace_minutes: 3
+
+  - name: alerting
+    patterns:
+      - '(?i)\b(curl|wget)\s+[^|&;]*(slack|pagerduty|opsgenie|alertmanager)'
+    timebox_minutes: 5
+    grace_minutes: 2
+
+# ---------------------------------------------------------------------------
+# Phases — none (continuous monitoring, no workflow phases)
+# ---------------------------------------------------------------------------
+
+phases: []
+
+# ---------------------------------------------------------------------------
+# Re-injection
+# ---------------------------------------------------------------------------
+
+reinjection:
+  capsule_every: 30
+  full_every: 200
+  rules_path: ""
+  capsule_lines: 20
+
+# ---------------------------------------------------------------------------
+# Sandbox
+# ---------------------------------------------------------------------------
+
+sandbox:
+  enabled: true
+  memory_max: "2G"
+  cpu_quota: "100%"
+  network_deny: []
+  readonly_paths:
+    - "/etc"
+    - "/boot"
+    - "/sys"
+    - "/proc"
+    - "/var/log"
+  inaccessible_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/root"
+
+# ---------------------------------------------------------------------------
+# Learning (cross-session memory)
+# ---------------------------------------------------------------------------
+
+learning:
+  enabled: false
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 15
+  extract_on:
+    - timebox_blocks
+    - drift_events
+    - blocked_commands
+  auto_seed: true
+  search_top_k: 5
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+tags:
+  - monitoring
+  - ops

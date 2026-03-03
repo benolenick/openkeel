@@ -7,13 +7,20 @@ install      Generate hooks, wire into agent settings.
 status       Show constitution + active mission.
 constitution show|test  Display or test rules.
 mission      start|show|update|plan|finding|end  Mission management.
+profile      list|show|validate  Profile management (full mode).
+run          Launch an agent subprocess with proxy shell (full mode).
+history      Query session history.
+phase        next|show  Phase management (full mode).
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
+import shutil
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -622,6 +629,456 @@ def cmd_mission_list(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# profile list / show / validate
+# ---------------------------------------------------------------------------
+
+
+def cmd_profile_list(args: argparse.Namespace) -> None:
+    from openkeel.core.profile import list_profiles
+    profiles = list_profiles()
+    if not profiles:
+        print("No profiles found.")
+        return
+    print("Available profiles:")
+    for name in profiles:
+        print(f"  - {name}")
+
+
+def cmd_profile_show(args: argparse.Namespace) -> None:
+    from openkeel.core.profile import load_profile
+    try:
+        profile = load_profile(args.name)
+    except FileNotFoundError as exc:
+        print(str(exc))
+        return
+
+    _print_section(f"Profile: {profile.name}")
+    if profile.description:
+        print(f"\n  {profile.description}")
+    print(f"\n  Version: {profile.version}")
+    print(f"  Default action: {profile.default_action}")
+    if profile.tags:
+        print(f"  Tags: {', '.join(profile.tags)}")
+
+    print(f"\n  BLOCKED patterns: {len(profile.blocked.patterns)}")
+    if profile.blocked.message:
+        print(f"    Message: {profile.blocked.message}")
+
+    print(f"  GATED patterns: {len(profile.gated.patterns)}")
+    if profile.gated.message:
+        print(f"    Message: {profile.gated.message}")
+
+    print(f"  SAFE patterns: {len(profile.safe.patterns)}")
+    if profile.safe.message:
+        print(f"    Message: {profile.safe.message}")
+
+    if profile.scope.allowed_ips:
+        print(f"\n  Scope — allowed IPs: {', '.join(profile.scope.allowed_ips)}")
+    if profile.scope.allowed_hostnames:
+        print(f"  Scope — allowed hostnames: {', '.join(profile.scope.allowed_hostnames)}")
+    if profile.scope.denied_paths:
+        print(f"  Scope — denied paths: {len(profile.scope.denied_paths)}")
+
+    if profile.activities:
+        print(f"\n  Activities ({len(profile.activities)}):")
+        for a in profile.activities:
+            tb = f" (timebox: {a.timebox_minutes}min)" if a.timebox_minutes else ""
+            print(f"    - {a.name}: {len(a.patterns)} patterns{tb}")
+
+    if profile.phases:
+        print(f"\n  Phases ({len(profile.phases)}):")
+        for p in profile.phases:
+            to = f" (timeout: {p.timeout_minutes}min)" if p.timeout_minutes else ""
+            gates = f", {len(p.gates)} gates" if p.gates else ""
+            print(f"    - {p.name}{to}{gates}")
+
+    print(f"\n  Re-injection: capsule every {profile.reinjection.capsule_every}, full every {profile.reinjection.full_every}")
+    print(f"  Sandbox: {'enabled' if profile.sandbox.enabled else 'disabled'}")
+    print()
+
+
+def cmd_profile_validate(args: argparse.Namespace) -> None:
+    from openkeel.core.profile import load_profile, validate_profile
+    try:
+        profile = load_profile(args.file)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"ERROR: {exc}")
+        return
+
+    issues = validate_profile(profile)
+    if not issues:
+        print(f"Profile '{profile.name}' is valid.")
+    else:
+        print(f"Profile '{profile.name}' has {len(issues)} issue(s):")
+        for issue in issues:
+            print(f"  - {issue}")
+
+
+# ---------------------------------------------------------------------------
+# run (full mode)
+# ---------------------------------------------------------------------------
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    import subprocess as sp
+    from openkeel.core.profile import load_profile, validate_profile
+    from openkeel.core.history import get_connection, start_session, end_session, sync_jsonl_to_db
+    from openkeel.core.sandbox import is_available as sandbox_available, build_systemd_run_args
+    from openkeel.core.gates import advance_phase
+
+    profile_name = args.profile
+    project = args.project or ""
+    agent_cmd = args.agent_command
+    # Strip leading -- if present (argparse REMAINDER includes it)
+    if agent_cmd and agent_cmd[0] == "--":
+        agent_cmd = agent_cmd[1:]
+
+    if not agent_cmd:
+        print("ERROR: No agent command specified.")
+        print("Usage: openkeel run --profile NAME -- agent-command args...")
+        sys.exit(1)
+
+    # Load and validate profile
+    try:
+        profile = load_profile(profile_name)
+    except FileNotFoundError as exc:
+        print(f"ERROR: {exc}")
+        sys.exit(1)
+
+    issues = validate_profile(profile)
+    if issues:
+        print(f"WARNING: Profile '{profile.name}' has issues:")
+        for issue in issues:
+            print(f"  - {issue}")
+
+    # Generate session ID
+    session_id = str(uuid.uuid4())[:12]
+
+    # Set up session directories
+    session_dir = Path.home() / ".openkeel" / "sessions" / session_id
+    log_dir = session_dir / "logs"
+    state_dir = session_dir / "state"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save session metadata
+    import json
+    meta = {"profile": profile_name, "project": project, "session_id": session_id}
+    (state_dir / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    # Find the openkeel-exec shell
+    exec_path = shutil.which("openkeel-exec")
+    if not exec_path:
+        # Fall back to running as module
+        exec_path = f"{sys.executable} -m openkeel.exec"
+
+    print(f"OpenKeel Full Mode")
+    print(f"  Session:  {session_id}")
+    print(f"  Profile:  {profile.name}")
+    if project:
+        print(f"  Project:  {project}")
+    print(f"  Agent:    {' '.join(agent_cmd)}")
+    print(f"  Log dir:  {log_dir}")
+    print()
+
+    # Record session in history DB
+    conn = get_connection()
+    start_session(conn, session_id, project=project, profile=profile.name)
+
+    # Auto-advance to first phase if phases defined
+    if profile.phases:
+        phase_state = state_dir / "phase.json"
+        advance_phase(profile, phase_state, str(log_dir / "session.jsonl"), session_id, force=True)
+        print(f"  Phase:    {profile.phases[0].name}")
+        print()
+
+    # Build environment
+    env = os.environ.copy()
+    env["SHELL"] = exec_path
+    env["OPENKEEL_PROFILE"] = profile_name
+    env["OPENKEEL_SESSION_ID"] = session_id
+    env["OPENKEEL_LOG_DIR"] = str(log_dir)
+    # Preserve the real shell for exec.py to use
+    if "SHELL" in os.environ:
+        env["OPENKEEL_REAL_SHELL"] = os.environ["SHELL"]
+
+    # Build command with optional sandbox
+    cmd = list(agent_cmd)
+    if profile.sandbox.enabled and sandbox_available():
+        sandbox_args = build_systemd_run_args(profile.sandbox, f"openkeel-{session_id}")
+        cmd = sandbox_args + cmd
+        print("  Sandbox:  enabled (systemd-run)")
+
+    # Launch agent subprocess
+    exit_code = 0
+    try:
+        proc = sp.Popen(cmd, env=env)
+        exit_code = proc.wait()
+    except KeyboardInterrupt:
+        print("\n[openkeel] Session interrupted.")
+        exit_code = 130
+    except FileNotFoundError:
+        print(f"ERROR: Agent command not found: {agent_cmd[0]}")
+        exit_code = 127
+    finally:
+        # End session in DB
+        status = "completed" if exit_code == 0 else "interrupted" if exit_code == 130 else "failed"
+        end_session(conn, session_id, status=status)
+
+        # Batch import JSONL to SQLite
+        jsonl_path = log_dir / "session.jsonl"
+        if jsonl_path.exists():
+            imported = sync_jsonl_to_db(conn, session_id, jsonl_path)
+            print(f"\n[openkeel] Session {session_id} ended. {imported} events recorded.")
+
+        conn.close()
+
+        # Post-session learning: extract lessons and seed to memory backend
+        if profile.learning.enabled and jsonl_path.exists():
+            try:
+                from openkeel.core.learning import run_post_session_learning
+                learned = run_post_session_learning(
+                    log_path=jsonl_path,
+                    config=profile.learning,
+                    project=project,
+                    profile_name=profile.name,
+                    session_id=session_id,
+                )
+                if learned:
+                    print(f"[openkeel] Learning: {learned} lessons seeded to memory backend.")
+            except Exception as exc:
+                logger.warning("Post-session learning failed: %s", exc)
+
+    sys.exit(exit_code)
+
+
+# ---------------------------------------------------------------------------
+# history
+# ---------------------------------------------------------------------------
+
+
+def cmd_history(args: argparse.Namespace) -> None:
+    from openkeel.core.history import (
+        get_connection, query_sessions, search_events,
+        get_session_events, get_session_phases, get_stats,
+    )
+
+    conn = get_connection()
+
+    if args.stats:
+        stats = get_stats(conn)
+        _print_section("Session Statistics")
+        print(f"\n  Total sessions: {stats['total_sessions']}")
+        print(f"  Total events:   {stats['total_events']}")
+        print(f"  Total blocked:  {stats['total_blocked']}")
+        if stats["by_status"]:
+            print("\n  By status:")
+            for status, count in stats["by_status"].items():
+                print(f"    {status}: {count}")
+        if stats["by_project"]:
+            print("\n  By project:")
+            for project, count in stats["by_project"].items():
+                print(f"    {project}: {count}")
+        if stats["top_blocked"]:
+            print("\n  Top blocked commands:")
+            for item in stats["top_blocked"][:5]:
+                print(f"    [{item['count']}x] {item['command'][:60]}")
+        print()
+        conn.close()
+        return
+
+    if args.session:
+        # Show details for a specific session
+        events = get_session_events(conn, args.session)
+        phases = get_session_phases(conn, args.session)
+
+        _print_section(f"Session: {args.session}")
+        if phases:
+            print("\n  Phases:")
+            for p in phases:
+                exit_info = f" -> {p['exited_at']}" if p.get("exited_at") else " (current)"
+                print(f"    {p['phase_name']}: {p['entered_at']}{exit_info}")
+
+        if events:
+            print(f"\n  Events ({len(events)}):")
+            for e in events[-20:]:  # Show last 20
+                action_marker = "DENY" if e["action"] == "deny" else "OK"
+                activity = f" [{e['activity']}]" if e.get("activity") else ""
+                cmd = e["command"][:50] if e.get("command") else ""
+                print(f"    [{action_marker}]{activity} {cmd}")
+            if len(events) > 20:
+                print(f"    ... and {len(events) - 20} more events")
+        else:
+            print("\n  No events recorded.")
+        print()
+        conn.close()
+        return
+
+    if args.search:
+        events = search_events(conn, args.search, limit=20)
+        if not events:
+            print(f"No events matching '{args.search}'.")
+        else:
+            print(f"Events matching '{args.search}':")
+            for e in events:
+                action_marker = "DENY" if e["action"] == "deny" else "OK"
+                print(f"  [{e['session_id'][:8]}] [{action_marker}] {e['command'][:60]}")
+        conn.close()
+        return
+
+    # Default: list recent sessions
+    sessions = query_sessions(conn, project=args.project, status=args.status, limit=20)
+    if not sessions:
+        print("No sessions found.")
+        conn.close()
+        return
+
+    print("Recent sessions:")
+    for s in sessions:
+        status_marker = {"running": ">", "completed": ".", "failed": "!", "interrupted": "x"}.get(s["status"], "?")
+        project_info = f" [{s['project']}]" if s.get("project") else ""
+        profile_info = f" ({s['profile']})" if s.get("profile") else ""
+        print(f"  [{status_marker}] {s['id']}{project_info}{profile_info}  cmds={s['command_count']} blocked={s['blocked_count']}  {s['started_at'][:19]}")
+
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# phase next / show
+# ---------------------------------------------------------------------------
+
+
+def cmd_phase_show(args: argparse.Namespace) -> None:
+    from openkeel.core.profile import load_profile
+    from openkeel.core.gates import get_current_phase, check_phase_timeout, _load_phase_state
+
+    session_dir = _find_session_dir(args.session)
+    if not session_dir:
+        return
+
+    profile_name = _read_session_profile(session_dir)
+    if not profile_name:
+        print("Could not determine session profile.")
+        return
+
+    profile = load_profile(profile_name)
+    state_path = session_dir / "state" / "phase.json"
+
+    current = get_current_phase(profile, state_path)
+    if not current:
+        print("No active phase.")
+        return
+
+    state = _load_phase_state(state_path)
+    timed_out, remaining = check_phase_timeout(profile, state_path)
+
+    _print_section("Phase Status")
+    print(f"\n  Current phase: {current.name}")
+    if current.description:
+        print(f"  Description: {current.description}")
+    if current.timeout_minutes:
+        status = "TIMED OUT" if timed_out else f"{remaining:.0f}min remaining"
+        print(f"  Timeout: {current.timeout_minutes}min ({status})")
+    if current.gates:
+        print(f"  Gates: {len(current.gates)}")
+
+    idx = state.get("current_index", 0)
+    total = len(profile.phases)
+    print(f"\n  Progress: phase {idx + 1}/{total}")
+    for i, phase in enumerate(profile.phases):
+        if i < idx:
+            marker = "[x]"
+        elif i == idx:
+            marker = "[>]"
+        else:
+            marker = "[ ]"
+        print(f"    {marker} {phase.name}")
+
+    if state.get("history"):
+        print(f"\n  Completed phases: {len(state['history'])}")
+
+    print()
+
+
+def cmd_phase_next(args: argparse.Namespace) -> None:
+    from openkeel.core.profile import load_profile
+    from openkeel.core.gates import advance_phase
+
+    session_dir = _find_session_dir(args.session)
+    if not session_dir:
+        return
+
+    profile_name = _read_session_profile(session_dir)
+    if not profile_name:
+        print("Could not determine session profile.")
+        return
+
+    profile = load_profile(profile_name)
+    state_path = session_dir / "state" / "phase.json"
+    log_path = session_dir / "logs" / "session.jsonl"
+
+    force = getattr(args, "force", False)
+    success, message = advance_phase(profile, state_path, log_path, args.session, force=force)
+
+    if success:
+        print(f"OK: {message}")
+    else:
+        print(f"FAILED: {message}")
+        if not force:
+            print("  Use --force to skip gate checks.")
+
+
+def _find_session_dir(session_id: str) -> Path | None:
+    """Find a session directory by ID (full or prefix)."""
+    sessions_base = Path.home() / ".openkeel" / "sessions"
+    if not sessions_base.exists():
+        print("No sessions found.")
+        return None
+
+    # Try exact match
+    exact = sessions_base / session_id
+    if exact.exists():
+        return exact
+
+    # Try prefix match
+    candidates = [d for d in sessions_base.iterdir() if d.is_dir() and d.name.startswith(session_id)]
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        print(f"Ambiguous session ID '{session_id}'. Matches: {', '.join(c.name for c in candidates)}")
+        return None
+
+    print(f"Session '{session_id}' not found.")
+    return None
+
+
+def _read_session_profile(session_dir: Path) -> str:
+    """Read the profile name from a session's env (stored by runner)."""
+    # Check if there's a metadata file
+    meta_path = session_dir / "state" / "meta.json"
+    if meta_path.exists():
+        import json
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            return meta.get("profile", "")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Fall back to scanning JSONL for profile info
+    jsonl_path = session_dir / "logs" / "session.jsonl"
+    if jsonl_path.exists():
+        import json
+        try:
+            first_line = jsonl_path.read_text(encoding="utf-8").split("\n")[0]
+            record = json.loads(first_line)
+            return record.get("profile", "")
+        except (json.JSONDecodeError, OSError, IndexError):
+            pass
+
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -634,7 +1091,7 @@ def main() -> None:
     parser.add_argument(
         "--version",
         action="version",
-        version="%(prog)s 0.1.0",
+        version="%(prog)s 0.2.0",
     )
 
     sub = parser.add_subparsers(dest="command", metavar="<command>")
@@ -722,6 +1179,56 @@ def main() -> None:
     # mission end
     p_mend = mission_sub.add_parser("end", help="Archive and deactivate the mission.")
     p_mend.set_defaults(func=cmd_mission_end)
+
+    # profile
+    p_profile = sub.add_parser("profile", help="Profile management (full mode).")
+    profile_sub = p_profile.add_subparsers(dest="profile_command", metavar="<subcommand>")
+    profile_sub.required = True
+
+    p_prof_list = profile_sub.add_parser("list", help="List available profiles.")
+    p_prof_list.set_defaults(func=cmd_profile_list)
+
+    p_prof_show = profile_sub.add_parser("show", help="Display profile details.")
+    p_prof_show.add_argument("name", help="Profile name or path.")
+    p_prof_show.set_defaults(func=cmd_profile_show)
+
+    p_prof_validate = profile_sub.add_parser("validate", help="Validate a profile YAML.")
+    p_prof_validate.add_argument("file", help="Profile name or path to validate.")
+    p_prof_validate.set_defaults(func=cmd_profile_validate)
+
+    # run
+    p_run = sub.add_parser(
+        "run",
+        help="Launch an agent with proxy shell (full mode).",
+        description="Run an agent subprocess with SHELL=openkeel-exec for command interception.",
+    )
+    p_run.add_argument("--profile", "-p", required=True, help="Profile name or path.")
+    p_run.add_argument("--project", help="Project name (for history tracking).")
+    p_run.add_argument("agent_command", nargs=argparse.REMAINDER, help="Agent command and arguments (after --).")
+    p_run.set_defaults(func=cmd_run)
+
+    # history
+    p_history = sub.add_parser("history", help="Query session history.")
+    p_history.add_argument("--project", help="Filter by project name.")
+    p_history.add_argument("--status", help="Filter by status (running/completed/failed/interrupted).")
+    p_history.add_argument("--search", "-s", help="Full-text search across events.")
+    p_history.add_argument("--stats", action="store_true", help="Show aggregate statistics.")
+    p_history.add_argument("--session", help="Show details for a specific session ID.")
+    p_history.set_defaults(func=cmd_history)
+
+    # phase
+    p_phase = sub.add_parser("phase", help="Phase management (full mode).")
+    phase_sub = p_phase.add_subparsers(dest="phase_command", metavar="<subcommand>")
+    phase_sub.required = True
+
+    p_phase_show = phase_sub.add_parser("show", help="Show current phase status.")
+    p_phase_show.add_argument("--session", required=True, help="Session ID.")
+    p_phase_show.set_defaults(func=cmd_phase_show)
+
+    p_phase_next = phase_sub.add_parser("next", help="Advance to the next phase.")
+    p_phase_next.add_argument("--session", required=True, help="Session ID.")
+    p_phase_next.add_argument("--force", action="store_true", help="Skip gate checks.")
+    p_phase_next.set_defaults(func=cmd_phase_next)
 
     args = parser.parse_args()
     args.func(args)

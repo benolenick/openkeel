@@ -33,6 +33,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "hooks": {
         "output_dir": "~/.openkeel/hooks",
     },
+    "profiles": {
+        "dir": "~/.openkeel/profiles",
+        "active": "",
+    },
 }
 
 

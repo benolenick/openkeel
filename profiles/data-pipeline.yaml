@@ -1,0 +1,286 @@
+# OpenKeel v0.2 — Data Pipeline / ETL Profile
+# For data engineering sessions: extract, transform, load, validate.
+# Permissive default to support broad Python/SQL tooling; hard blocks on
+# production-destructive DDL/DML and unscoped object-store uploads.
+
+name: data-pipeline
+description: >
+  Data pipeline and ETL profile. Allows broad read access to data stores and
+  execution of transformation scripts. Gates SQL writes, object-store uploads, and
+  mutating API calls. Hard-blocks unguarded DROP/TRUNCATE and production DB writes.
+version: "0.2"
+
+# ---------------------------------------------------------------------------
+# Command classification tiers
+# ---------------------------------------------------------------------------
+
+blocked:
+  patterns:
+    # Unguarded destructive DDL — no WHERE clause, no staging qualifier
+    - '(?i)\bDROP\s+(TABLE|DATABASE|SCHEMA|INDEX|VIEW|SEQUENCE|FUNCTION|PROCEDURE)\b'
+    - '(?i)\bTRUNCATE\s+TABLE\b'
+    # DELETE without WHERE (full-table wipe)
+    - '(?i)\bDELETE\s+FROM\s+\S+\s*;'
+    - "(?i)\\bDELETE\\s+FROM\\s+\\S+\\s*$"
+    # Recursive deletion of data directories
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+'
+    # Writing directly to production database aliases
+    - '(?i)\bpsql\s+[^|&;]*(prod|production|live)[^|&;]*-c\s+[^|&;]*(INSERT|UPDATE|DELETE|DROP|TRUNCATE)'
+    - '(?i)\bmysql\s+[^|&;]*(prod|production|live)[^|&;]*-e\s+[^|&;]*(INSERT|UPDATE|DELETE|DROP|TRUNCATE)'
+    # System power control
+    - '(?i)\b(shutdown|poweroff|halt|reboot|init\s+[06])\b'
+    # Disk formatting
+    - '(?i)\b(mkfs|mke2fs|fdisk|parted)\b'
+    - '(?i)\bdd\s+.*of=/dev/'
+    # Accidental credential exposure
+    - '(?i)\bcat\s+[^|&;]*\.(env|secret|key|pem|p12|pfx)\b'
+  message: "BLOCKED by data-pipeline profile: destructive or production-write operation denied."
+
+gated:
+  patterns:
+    # SQL write statements (INSERT/UPDATE/DELETE with WHERE — allowed to staging only after review)
+    - '(?i)\bINSERT\s+INTO\b'
+    - '(?i)\bUPDATE\s+\S+\s+SET\b'
+    - '(?i)\bDELETE\s+FROM\s+\S+\s+WHERE\b'
+    # Schema changes (non-destructive DDL)
+    - '(?i)\bCREATE\s+(TABLE|INDEX|VIEW|SCHEMA|SEQUENCE)\b'
+    - '(?i)\bALTER\s+(TABLE|INDEX|VIEW|SEQUENCE)\b'
+    # Object-store uploads
+    - '(?i)\baws\s+s3\s+(cp|mv|sync|put)\b'
+    - '(?i)\bgsutil\s+(cp|mv|rsync)\b'
+    - '(?i)\baz\s+storage\s+blob\s+upload\b'
+    - '(?i)\bmc\s+(cp|mirror|put)\b'
+    # API mutations
+    - '(?i)\bcurl\s+[^|&;]*-X\s+(POST|PUT|DELETE|PATCH)\b'
+    - '(?i)\bcurl\s+[^|&;]*--request\s+(POST|PUT|DELETE|PATCH)\b'
+    # dbt run (applies transformations; model execution)
+    - '^\s*dbt\s+(run|build|seed|snapshot)\b'
+    # Airflow trigger (starts pipeline execution)
+    - '(?i)\bairflow\s+(dags\s+trigger|tasks\s+run)\b'
+    # Kafka producer (writes messages to topic)
+    - '(?i)\bkafka-console-producer\b'
+    # Hadoop / HDFS writes
+    - '(?i)\bhdfs\s+dfs\s+(-put|-moveFromLocal|-cp|-mv|-rm)\b'
+    # Credentials in environment
+    - '(?i)\bexport\s+\w*(SECRET|TOKEN|KEY|PASSWORD|PASS|API_KEY)\w*='
+  message: "GATED by data-pipeline profile: write or upload operation requires staging scope check."
+
+safe:
+  patterns:
+    # SQL read-only queries
+    - '(?i)^\s*SELECT\b'
+    - '(?i)^\s*EXPLAIN\b'
+    - '(?i)^\s*SHOW\s+(TABLES|DATABASES|COLUMNS|CREATE|STATUS|VARIABLES|GRANTS)\b'
+    - '(?i)^\s*DESCRIBE\s+\S+'
+    - '(?i)^\s*\\d[tl\+]?\b'    # psql \dt, \dl meta-commands
+    # psql / mysql interactive read-only connections
+    - '^\s*psql\s+(?!.*-c\s+[^|&;]*(INSERT|UPDATE|DELETE|DROP|TRUNCATE))'
+    - '^\s*mysql\s+(?!.*-e\s+[^|&;]*(INSERT|UPDATE|DELETE|DROP|TRUNCATE))'
+    - '^\s*sqlite3\s+\S+\s*$'
+    # Python data tooling
+    - '^\s*(python|python3)\s+\S+\.py\b'
+    - '^\s*(python|python3)\s+-c\s'
+    - '^\s*(python|python3)\s+-m\s+(pytest|unittest|jupyter|nbconvert)\b'
+    - '^\s*jupyter\s+(notebook|lab|nbconvert)\b'
+    - '^\s*ipython\b'
+    # Pandas, polars, dask — invoked via python scripts (covered above)
+    # Spark
+    - '^\s*(spark-submit|spark-sql|pyspark)\b'
+    - '^\s*(spark-shell)\b'
+    # dbt read-only operations
+    - '^\s*dbt\s+(test|docs|compile|debug|ls|list|parse|deps|source\s+freshness)\b'
+    # Airflow read-only
+    - '(?i)\bairflow\s+(dags\s+list|tasks\s+list|dags\s+show|info|version)\b'
+    # Object-store listing / download
+    - '(?i)\baws\s+s3\s+(ls|sync\s+s3://[^|&;]+\s+/|cp\s+s3://)\b'
+    - '(?i)\bgsutil\s+(ls|cat|stat)\b'
+    - '(?i)\baz\s+storage\s+blob\s+(list|download|show)\b'
+    - '(?i)\bmc\s+(ls|cat|stat|find)\b'
+    # Kafka consumer / admin read
+    - '(?i)\bkafka-console-consumer\b'
+    - '(?i)\bkafka-topics\s+--list\b'
+    - '(?i)\bkafka-consumer-groups\s+--describe\b'
+    # HDFS read
+    - '(?i)\bhdfs\s+dfs\s+(-ls|-cat|-get|-copyToLocal|-du|-count|-stat)\b'
+    # File utilities
+    - '^\s*(ls|ll|la|dir|find|fd|cat|less|head|tail|grep|rg|awk|sed|wc|sort|uniq|cut|diff)\s'
+    - '^\s*(cp|mv|mkdir|touch)\s'
+    - '^\s*pwd\s*$'
+    - '^\s*cd\s'
+    # Compression / archive
+    - '^\s*(tar|gzip|gunzip|bzip2|xz|zip|unzip|zstd)\s'
+    # CSV / data file inspection
+    - '^\s*(csvkit|csvstat|csvlook|csvsort|csvgrep|in2csv)\s'
+    - '^\s*(xsv|qsv|miller|mlr)\s'
+    # Environment and process info
+    - '^\s*(env|printenv|id|whoami|uname|ps|top|free|df|du)\b'
+    # Git read-only
+    - '^\s*git\s+(status|diff|log|show|branch|fetch|stash\s+list)\b'
+    - '^\s*git\s+(add|commit|checkout|merge|pull|clone)\b'
+    # Schema / data profiling tools
+    - '^\s*(great_expectations|ge)\b'
+    - '^\s*(deequ|soda)\b'
+  message: ""
+
+default_action: allow
+
+# ---------------------------------------------------------------------------
+# Scope constraints
+# ---------------------------------------------------------------------------
+
+scope:
+  allowed_ips: []
+  allowed_hostnames: []
+  allowed_paths:
+    - "/data/**"
+    - "/mnt/data/**"
+    - "/opt/data/**"
+    - "/home/*/data/**"
+    - "/home/*/etl/**"
+    - "/home/*/pipeline/**"
+    - "/tmp/**"
+    - "/var/tmp/**"
+    - "C:/Users/*/data/**"
+    - "C:/Users/*/etl/**"
+    - "C:/Users/*/pipeline/**"
+  denied_paths:
+    - "/etc/**"
+    - "/boot/**"
+    - "/sys/**"
+    - "/root/**"
+
+# ---------------------------------------------------------------------------
+# Activities (timeboxing)
+# ---------------------------------------------------------------------------
+
+activities:
+  - name: extract
+    patterns:
+      - '(?i)\b(curl|wget|aws\s+s3\s+cp|gsutil\s+cp|sftp|rsync)\s'
+      - '(?i)\bpsql\s+[^|&;]*-c\s+[^|&;]*SELECT\b'
+      - '(?i)\bmysql\s+[^|&;]*-e\s+[^|&;]*SELECT\b'
+      - '^\s*(python|python3)\s+[^|&;]*extract\S*\.py\b'
+    timebox_minutes: 30
+    grace_minutes: 5
+
+  - name: transform
+    patterns:
+      - '^\s*(python|python3)\s+[^|&;]*transform\S*\.py\b'
+      - '^\s*(spark-submit|pyspark)\s'
+      - '^\s*dbt\s+(run|build)\b'
+      - '^\s*(python|python3)\s+\S+\.py\b'
+    timebox_minutes: 45
+    grace_minutes: 10
+
+  - name: load
+    patterns:
+      - '(?i)\bINSERT\s+INTO\b'
+      - '(?i)\baws\s+s3\s+(cp|sync)\b'
+      - '(?i)\bgsutil\s+(cp|rsync)\b'
+      - '^\s*(python|python3)\s+[^|&;]*load\S*\.py\b'
+    timebox_minutes: 20
+    grace_minutes: 5
+
+  - name: validate
+    patterns:
+      - '^\s*dbt\s+test\b'
+      - '^\s*(great_expectations|ge)\b'
+      - '^\s*(python|python3)\s+[^|&;]*valid\S*\.py\b'
+      - '(?i)\bSELECT\s+COUNT\(\*\)\b'
+    timebox_minutes: 15
+    grace_minutes: 3
+
+# ---------------------------------------------------------------------------
+# Phases
+# ---------------------------------------------------------------------------
+
+phases:
+  - name: extract
+    description: "Pull raw data from source systems into the staging area."
+    timeout_minutes: 30
+    auto_advance: false
+    gates:
+      - type: command_output
+        target: "df -h /tmp"
+        expect: "/tmp"
+        message: "Staging area /tmp must be accessible."
+
+  - name: transform
+    description: "Apply business logic, cleaning, and enrichment to staged data."
+    timeout_minutes: 45
+    auto_advance: false
+    gates:
+      - type: file_exists
+        target: "/tmp/extract_complete.flag"
+        expect: ""
+        message: "Extract phase must complete (flag file) before transformations begin."
+
+  - name: load
+    description: "Write transformed data to the target data store or object store."
+    timeout_minutes: 20
+    auto_advance: false
+    gates:
+      - type: file_exists
+        target: "/tmp/transform_complete.flag"
+        expect: ""
+        message: "Transform phase must complete before loading."
+
+  - name: validate
+    description: "Run data quality checks and schema assertions on loaded data."
+    timeout_minutes: 15
+    auto_advance: false
+    gates:
+      - type: file_exists
+        target: "/tmp/load_complete.flag"
+        expect: ""
+        message: "Load phase must complete before validation."
+
+# ---------------------------------------------------------------------------
+# Re-injection
+# ---------------------------------------------------------------------------
+
+reinjection:
+  capsule_every: 20
+  full_every: 100
+  rules_path: ""
+  capsule_lines: 20
+
+# ---------------------------------------------------------------------------
+# Sandbox
+# ---------------------------------------------------------------------------
+
+sandbox:
+  enabled: false
+  memory_max: "8G"
+  cpu_quota: "400%"
+  network_deny: []
+  readonly_paths: []
+  inaccessible_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/root"
+
+# ---------------------------------------------------------------------------
+# Learning (cross-session memory)
+# ---------------------------------------------------------------------------
+
+learning:
+  enabled: false
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 15
+  extract_on:
+    - timebox_blocks
+    - successful_phases
+    - drift_events
+    - blocked_commands
+  auto_seed: true
+  search_top_k: 5
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+tags:
+  - data
+  - pipeline
+  - etl

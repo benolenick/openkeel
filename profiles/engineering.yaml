@@ -1,0 +1,261 @@
+# OpenKeel v0.2 — Software Engineering Profile
+# Intended for general software development sessions: coding, testing, debugging, and
+# version-control operations. Permissive by default; hard blocks on destructive ops.
+
+name: engineering
+description: >
+  Software engineering workflow. Allows broad read/run access, gates network-publishing
+  commands, and hard-blocks destructive filesystem and database operations.
+version: "0.2"
+
+# ---------------------------------------------------------------------------
+# Command classification tiers
+# ---------------------------------------------------------------------------
+
+blocked:
+  patterns:
+    # Recursive deletion at root or home
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+/'
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+~'
+    # Force-push to protected branches
+    - 'git\s+push\s+[^|&;]*--force[^|&;]*(main|master|production|prod|release)'
+    - 'git\s+push\s+[^|&;]*-f\s+[^|&;]*(main|master|production|prod|release)'
+    # SQL destructive DDL (unqualified — no WHERE, no schema prefix guard)
+    - '(?i)\bDROP\s+(DATABASE|SCHEMA)\b'
+    - '(?i)\bTRUNCATE\s+TABLE\b'
+    # Disk formatting and partitioning
+    - '(?i)\b(mkfs|mke2fs|mkswap)\b'
+    - '(?i)\bfdisk\b'
+    - '(?i)\bparted\b.*--(script|mkpart|rm)\b'
+    - '(?i)\bdd\s+.*of=/dev/(sd|nvme|vd|hd)[a-z]'
+    # System power control
+    - '(?i)\b(shutdown|poweroff|halt|reboot|init\s+[06])\b'
+    # Wipe $HOME config silently
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+\$HOME'
+  message: "BLOCKED by engineering profile: destructive or irreversible operation denied."
+
+gated:
+  patterns:
+    # Any git push (non-force already allowed to feature branches, but still log)
+    - 'git\s+push\b'
+    # Docker image push / build-and-push
+    - 'docker\s+(push|buildx\s+build[^|&;]*--push)\b'
+    # Package publishing
+    - 'npm\s+publish\b'
+    - 'yarn\s+publish\b'
+    - '(?i)\bpip\s+install\b'
+    - '(?i)\bpipx\s+install\b'
+    - '(?i)\bcargo\s+publish\b'
+    - '(?i)\bgo\s+install\b'
+    # Broad docker compose up (could start prod-like services)
+    - 'docker[\s-]compose\s+up\b'
+    - 'docker\s+compose\s+up\b'
+    # curl/wget with output redirect (could overwrite files)
+    - 'curl\s+[^|&;]*-o\s'
+    - 'wget\s+[^|&;]+-O\s'
+    # SSH to remote hosts
+    - '\bssh\s+\S'
+    # Credential-adjacent env exports
+    - '(?i)\bexport\s+\w*(SECRET|TOKEN|KEY|PASSWORD|PASS|API_KEY)\w*='
+  message: "GATED by engineering profile: network publish or install requires scope check."
+
+safe:
+  patterns:
+    # Directory listing and navigation
+    - '^\s*(ls|ll|la|dir)\b'
+    - '^\s*pwd\s*$'
+    - '^\s*cd\s'
+    # File reading
+    - '^\s*(cat|bat|less|more|head|tail)\s'
+    - '^\s*(grep|rg|ripgrep|ag|ack)\s'
+    - '^\s*(find|fd)\s'
+    - '^\s*(wc|sort|uniq|cut|awk|sed)\s'
+    - '^\s*diff\s'
+    # Git read-only operations
+    - '^\s*git\s+(status|diff|log|show|branch|tag|remote|fetch|stash\s+list|describe|shortlog|blame|ls-files|rev-parse|reflog|worktree\s+list)\b'
+    # Git safe write ops
+    - '^\s*git\s+(add|commit|checkout|switch|restore|merge|rebase|stash)\b'
+    - '^\s*git\s+(pull|clone)\b'
+    # File editors (invocation only — not contents)
+    - '^\s*(vim|nvim|nano|emacs|code|cursor)\s'
+    # Python execution
+    - '^\s*(python|python3|python3\.\d+)\s'
+    - '^\s*(pytest|py\.test|unittest)\b'
+    - '^\s*(mypy|pyright|ruff|flake8|black|isort)\s'
+    # Node / JS toolchain
+    - '^\s*(node|nodejs)\s'
+    - '^\s*npm\s+(test|run|build|start|ci|install\s+--save-dev|install\s+-D)\b'
+    - '^\s*npx\s'
+    - '^\s*yarn\s+(test|build|run|start|install)\b'
+    - '^\s*pnpm\s+(test|build|run|start|install)\b'
+    # Go
+    - '^\s*go\s+(build|test|run|vet|fmt|mod)\b'
+    # Rust
+    - '^\s*cargo\s+(build|test|run|check|fmt|clippy)\b'
+    # Java / JVM
+    - '^\s*(javac|java|mvn|gradle)\s'
+    # Docker read-only
+    - '^\s*docker\s+(ps|images|inspect|logs|stats|version|info|network\s+ls|volume\s+ls)\b'
+    # Make / task runners
+    - '^\s*(make|task|just)\s'
+    # File creation and editing
+    - '^\s*(touch|mkdir|cp|mv)\s'
+    # Environment introspection
+    - '^\s*(env|printenv|echo|which|type|whereis)\b'
+    # Process and system info (read-only)
+    - '^\s*(ps|top|htop|free|df|du|uname|id|whoami|hostname)\b'
+    # Curl/wget GET (no file output flag)
+    - '^\s*curl\s+(?!.*\s-o\s)(?!.*\s--output\s)[^|&;]+$'
+  message: ""
+
+default_action: allow
+
+# ---------------------------------------------------------------------------
+# Scope constraints
+# ---------------------------------------------------------------------------
+
+scope:
+  allowed_ips: []
+  allowed_hostnames: []
+  allowed_paths:
+    - "/home/*/projects/**"
+    - "/home/*/src/**"
+    - "/home/*/code/**"
+    - "/home/*/workspace/**"
+    - "/opt/projects/**"
+    - "/tmp/**"
+    - "/var/tmp/**"
+    - "C:/Users/*/projects/**"
+    - "C:/Users/*/src/**"
+    - "C:/Users/*/code/**"
+  denied_paths:
+    - "/etc/**"
+    - "/boot/**"
+    - "/sys/**"
+    - "/proc/**"
+    - "/dev/**"
+    - "/root/**"
+    - "/var/lib/**"
+
+# ---------------------------------------------------------------------------
+# Activities (timeboxing)
+# ---------------------------------------------------------------------------
+
+activities:
+  - name: coding
+    patterns:
+      - '^\s*(vim|nvim|nano|emacs|code|cursor)\s'
+      - '^\s*(python|python3|node|go|cargo|mvn|gradle)\s'
+      - '^\s*(touch|mkdir|cp|mv)\s'
+    timebox_minutes: 30
+    grace_minutes: 5
+
+  - name: testing
+    patterns:
+      - '^\s*(pytest|py\.test|unittest|jest|mocha|cargo\s+test|go\s+test|mvn\s+test)\b'
+      - '^\s*npm\s+(test|run\s+test)\b'
+      - '^\s*yarn\s+test\b'
+    timebox_minutes: 20
+    grace_minutes: 5
+
+  - name: debugging
+    patterns:
+      - '^\s*(gdb|lldb|pdb|ipdb|pudb)\s'
+      - '^\s*(strace|ltrace|lsof|netstat|ss)\s'
+      - '^\s*(valgrind|perf)\s'
+      - '^\s*python\s+.*-m\s+(pdb|cProfile)\b'
+    timebox_minutes: 25
+    grace_minutes: 5
+
+  - name: git-operations
+    patterns:
+      - '^\s*git\s+'
+    timebox_minutes: 10
+    grace_minutes: 3
+
+# ---------------------------------------------------------------------------
+# Phases
+# ---------------------------------------------------------------------------
+
+phases:
+  - name: setup
+    description: "Environment setup and dependency installation."
+    timeout_minutes: 5
+    auto_advance: false
+    gates:
+      - type: command_output
+        target: "git status"
+        expect: "On branch"
+        message: "Must be inside a git repository."
+
+  - name: implement
+    description: "Active development — writing and editing code."
+    timeout_minutes: 60
+    auto_advance: false
+    gates:
+      - type: exit_code
+        target: "python -c 'import sys; sys.exit(0)'"
+        expect: "0"
+        message: "Python interpreter must be available."
+
+  - name: test
+    description: "Running automated tests and linters."
+    timeout_minutes: 30
+    auto_advance: false
+    gates:
+      - type: file_exists
+        target: "pyproject.toml"
+        expect: ""
+        message: "Project manifest (pyproject.toml) should exist before running tests."
+
+  - name: review
+    description: "Code review, diff inspection, and PR preparation."
+    timeout_minutes: 15
+    auto_advance: false
+    gates: []
+
+# ---------------------------------------------------------------------------
+# Re-injection
+# ---------------------------------------------------------------------------
+
+reinjection:
+  capsule_every: 25
+  full_every: 150
+  rules_path: ""
+  capsule_lines: 20
+
+# ---------------------------------------------------------------------------
+# Sandbox
+# ---------------------------------------------------------------------------
+
+sandbox:
+  enabled: false
+  memory_max: ""
+  cpu_quota: ""
+  network_deny: []
+  readonly_paths: []
+  inaccessible_paths: []
+
+# ---------------------------------------------------------------------------
+# Learning (cross-session memory)
+# ---------------------------------------------------------------------------
+
+learning:
+  enabled: false
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 15
+  extract_on:
+    - timebox_blocks
+    - successful_phases
+    - drift_events
+    - blocked_commands
+  auto_seed: true
+  search_top_k: 5
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+tags:
+  - engineering
+  - software
