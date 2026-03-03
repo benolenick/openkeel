@@ -88,17 +88,6 @@ class SandboxConfig:
 
 
 @dataclass
-class GuardianConfig:
-    """Configuration for an external safety-check model (e.g. granite-guardian)."""
-    enabled: bool = False
-    endpoint: str = "http://localhost:11434/api/generate"
-    model: str = ""
-    check_on: str = "gated"  # "gated", "all", "none"
-    timeout: int = 10
-    context: str = ""
-
-
-@dataclass
 class TimerDef:
     """A periodic check that runs during a session."""
     name: str = ""
@@ -151,9 +140,6 @@ class Profile:
 
     # Sandbox
     sandbox: SandboxConfig = field(default_factory=SandboxConfig)
-
-    # Guardian (external safety-check model)
-    guardian: GuardianConfig = field(default_factory=GuardianConfig)
 
     # Timers (periodic checks)
     timers: list[TimerDef] = field(default_factory=list)
@@ -243,19 +229,6 @@ def _parse_sandbox(raw: dict[str, Any] | None) -> SandboxConfig:
     )
 
 
-def _parse_guardian(raw: dict[str, Any] | None) -> GuardianConfig:
-    if not raw:
-        return GuardianConfig()
-    return GuardianConfig(
-        enabled=raw.get("enabled", False),
-        endpoint=raw.get("endpoint", "http://localhost:11434/api/generate"),
-        model=raw.get("model", ""),
-        check_on=raw.get("check_on", "gated"),
-        timeout=raw.get("timeout", 10),
-        context=raw.get("context", ""),
-    )
-
-
 def _parse_timer(raw: dict[str, Any]) -> TimerDef:
     return TimerDef(
         name=raw.get("name", ""),
@@ -300,7 +273,6 @@ def _parse_profile(data: dict[str, Any]) -> Profile:
         phases=phases,
         reinjection=_parse_reinjection(data.get("reinjection")),
         sandbox=_parse_sandbox(data.get("sandbox")),
-        guardian=_parse_guardian(data.get("guardian")),
         timers=timers,
         learning=_parse_learning(data.get("learning")),
         tags=data.get("tags", []),
@@ -451,12 +423,6 @@ def validate_profile(profile: Profile) -> list[str]:
             "reinjection.full_every should be >= capsule_every "
             f"(got {profile.reinjection.full_every} < {profile.reinjection.capsule_every})"
         )
-
-    # Check guardian
-    if profile.guardian.enabled and not profile.guardian.model:
-        issues.append("guardian.model is required when guardian is enabled")
-    if profile.guardian.check_on not in ("gated", "all", "none"):
-        issues.append(f"guardian.check_on must be 'gated', 'all', or 'none', got '{profile.guardian.check_on}'")
 
     # Check timers
     for i, timer in enumerate(profile.timers):

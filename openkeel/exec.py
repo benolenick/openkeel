@@ -83,19 +83,6 @@ def main() -> None:
     # 1. Classify
     result = classify(command, profile)
 
-    # 1b. Guardian check (after classification, before timebox)
-    should_check = (
-        (profile.guardian.check_on == "gated" and result.tier == "gated" and result.action == "allow")
-        or (profile.guardian.check_on == "all" and result.action == "allow")
-    )
-    if should_check and profile.guardian.enabled:
-        from openkeel.integrations.guardian import GuardianClient
-        guardian = GuardianClient(profile.guardian)
-        allowed, explanation = guardian.check_command(command)
-        if not allowed:
-            result.action = "deny"
-            result.message = f"Guardian blocked: {explanation}"
-
     # 2. Check timebox (if activity matched)
     timebox_action = "allow"
     timebox_message = ""
