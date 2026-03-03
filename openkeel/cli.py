@@ -1097,6 +1097,19 @@ def _read_session_profile(session_dir: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
+# launch
+# ---------------------------------------------------------------------------
+
+
+def cmd_launch(args: argparse.Namespace) -> None:
+    from openkeel.launch import launch
+    launch(
+        agent_name=getattr(args, "agent", "") or "",
+        project=getattr(args, "project", "") or "",
+    )
+
+
+# ---------------------------------------------------------------------------
 # remember / recall / memory
 # ---------------------------------------------------------------------------
 
@@ -1202,7 +1215,12 @@ def main() -> None:
     )
 
     sub = parser.add_subparsers(dest="command", metavar="<command>")
-    sub.required = True
+
+    # launch (also the default when no subcommand given)
+    p_launch = sub.add_parser("launch", help="Launch an agent with context injection (default).")
+    p_launch.add_argument("agent", nargs="?", default="", help="Agent name (claude, gemini, codex).")
+    p_launch.add_argument("project", nargs="?", default="", help="Project name (auto-detected from cwd).")
+    p_launch.set_defaults(func=cmd_launch)
 
     # init
     p_init = sub.add_parser("init", help="Interactive setup wizard.")
@@ -1373,6 +1391,13 @@ def main() -> None:
     p_memory.set_defaults(func=lambda a: cmd_memory_stats(a) if not getattr(a, 'memory_command', None) else None)
 
     args = parser.parse_args()
+
+    # Default to launch if no subcommand given
+    if not args.command:
+        from openkeel.launch import launch
+        launch()
+        return
+
     args.func(args)
 
 
