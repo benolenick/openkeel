@@ -1,0 +1,17 @@
+# OpenKeel Configuration
+# Copy to ~/.openkeel/config.yaml and customize.
+
+constitution:
+  path: "~/.openkeel/constitution.yaml"
+  log_path: "~/.openkeel/enforcement.log"
+
+keel:
+  missions_dir: "~/.openkeel/missions"
+  active_mission: ""  # Set by `openkeel mission start`
+  inject_on:
+    - startup
+    - resume
+    - compact
+
+hooks:
+  output_dir: "~/.openkeel/hooks"

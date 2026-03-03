@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openkeel"
+version = "0.1.0"
+description = "Immutable governance and mission persistence for CLI AI agents"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Ben Olenick"}]
+keywords = ["ai", "agents", "governance", "claude-code", "hooks", "mission"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Software Development :: Quality Assurance",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+openkeel = "openkeel.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["openkeel*"]

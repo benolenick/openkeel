@@ -1,0 +1,60 @@
+# OpenKeel Constitution — Example Rules
+# Copy to ~/.openkeel/constitution.yaml and customize.
+#
+# Rules are evaluated top-to-bottom, first match wins (like iptables).
+# Actions: deny (block + log), alert (allow + log), allow (explicit pass)
+
+rules:
+  # ---- Safety rules (always active) ----
+
+  - id: "no-rm-rf-root"
+    tool: "Bash"
+    match:
+      field: "command"
+      pattern: "rm\\s+.*-r.*\\s+/"
+    action: "deny"
+    message: "Blocked: recursive deletion at root level"
+
+  - id: "no-force-push-main"
+    tool: "Bash"
+    match:
+      field: "command"
+      pattern: "git\\s+push\\s+.*--force.*\\s+(main|master)"
+    action: "deny"
+    message: "Blocked: force push to main/master"
+
+  - id: "no-drop-database"
+    tool: "Bash"
+    match:
+      field: "command"
+      pattern: "(?i)drop\\s+(database|table)"
+    action: "deny"
+    message: "Blocked: DROP DATABASE/TABLE"
+
+  - id: "no-env-cat"
+    tool: "Bash"
+    match:
+      field: "command"
+      pattern: "cat.*\\.env"
+    action: "alert"
+    message: "Alert: reading .env file"
+
+  # ---- Pentest-specific rules (only active during pentest missions) ----
+
+  - id: "no-external-curl"
+    tool: "Bash"
+    match:
+      field: "command"
+      pattern: "curl.*https?://(?!10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.)"
+    action: "deny"
+    when_tags: ["pentest"]
+    message: "Blocked: external network request during pentest (only internal IPs allowed)"
+
+  - id: "alert-nmap"
+    tool: "Bash"
+    match:
+      field: "command"
+      pattern: "nmap"
+    action: "alert"
+    when_tags: ["pentest"]
+    message: "Alert: nmap scan detected"
