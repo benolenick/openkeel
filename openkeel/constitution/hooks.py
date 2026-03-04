@@ -14,10 +14,10 @@ def generate_enforce_hook(
     log_path: str | Path,
     output_path: str | Path,
     *,
-    fv_enabled: bool = False,
-    fv_endpoint: str = "http://127.0.0.1:8000",
-    fv_timeout: int = 10,
-    fv_top_k: int = 5,
+    memoria_enabled: bool = False,
+    memoria_endpoint: str = "http://127.0.0.1:8000",
+    memoria_timeout: int = 10,
+    memoria_top_k: int = 5,
     fv_mandatory_patterns: list[str] | None = None,
     fv_advisory_patterns: list[str] | None = None,
     fv_tool_queries: dict[str, str] | None = None,
@@ -27,7 +27,7 @@ def generate_enforce_hook(
     The generated script is completely self-contained — no openkeel imports.
     It reads the constitution YAML, evaluates rules, and outputs a decision.
     Also fires self-timer reminders, injects mission capsule, and queries
-    FV memory before attack commands.
+    Memoria memory before attack commands.
 
     Args:
         constitution_path: Path to constitution.yaml
@@ -35,12 +35,12 @@ def generate_enforce_hook(
         active_mission: Name of active mission file (e.g. "my-mission.yaml")
         log_path: Path to enforcement log file
         output_path: Where to write the generated hook script
-        fv_enabled: Whether FV memory enforcement is active
-        fv_endpoint: FV server URL (default http://127.0.0.1:8000)
-        fv_timeout: Seconds per FV query
-        fv_top_k: Number of facts to retrieve
-        fv_mandatory_patterns: Regex patterns for mandatory FV queries (exploitation, post-exploitation)
-        fv_advisory_patterns: Regex patterns for advisory FV queries (enumeration)
+        memoria_enabled: Whether Memoria memory enforcement is active
+        memoria_endpoint: Memoria server URL (default http://127.0.0.1:8000)
+        memoria_timeout: Seconds per Memoria query
+        memoria_top_k: Number of facts to retrieve
+        fv_mandatory_patterns: Regex patterns for mandatory Memoria queries (exploitation, post-exploitation)
+        fv_advisory_patterns: Regex patterns for advisory Memoria queries (enumeration)
         fv_tool_queries: Map of tool name -> semantic search query template
 
     Returns:
@@ -75,7 +75,7 @@ def generate_enforce_hook(
     ]
     self_protect_path_json = repr(self_protect_path_patterns)
 
-    # FV config for embedding
+    # Memoria config for embedding
     fv_mandatory_json = json.dumps(fv_mandatory_patterns or [])
     fv_advisory_json = json.dumps(fv_advisory_patterns or [])
     fv_tool_queries_json = json.dumps(fv_tool_queries or {})
@@ -87,7 +87,7 @@ def generate_enforce_hook(
         PreToolUse hook for Claude Code. Reads rules from constitution.yaml,
         evaluates them against the tool call, and outputs allow/block decision.
         Also fires self-timer reminders, injects mission capsule on allow,
-        and queries FV memory before attack commands.
+        and queries Memoria memory before attack commands.
 
         DO NOT EDIT — regenerate with: openkeel install
         """
@@ -108,13 +108,13 @@ def generate_enforce_hook(
         SELF_PROTECT_WRITE_PATTERNS = {self_protect_write_json}
         SELF_PROTECT_PATH_PATTERNS = {self_protect_path_json}
 
-        # --- FV (Facts Vault) memory enforcement config ---
-        FV_ENABLED = {fv_enabled!r}
-        FV_ENDPOINT = {json.dumps(fv_endpoint)}
-        FV_TIMEOUT = {fv_timeout}
-        FV_TOP_K = {fv_top_k}
-        FV_MANDATORY_PATTERNS = {fv_mandatory_json}
-        FV_ADVISORY_PATTERNS = {fv_advisory_json}
+        # --- Memoria memory enforcement config ---
+        MEMORIA_ENABLED = {memoria_enabled!r}
+        MEMORIA_ENDPOINT = {json.dumps(memoria_endpoint)}
+        MEMORIA_TIMEOUT = {memoria_timeout}
+        MEMORIA_TOP_K = {memoria_top_k}
+        MEMORIA_MANDATORY_PATTERNS = {fv_mandatory_json}
+        MEMORIA_ADVISORY_PATTERNS = {fv_advisory_json}
         TOOL_QUERY_MAP = {fv_tool_queries_json}
 
         def load_yaml_simple(path):
@@ -351,43 +351,92 @@ def generate_enforce_hook(
             except Exception:
                 return ""
 
-        # --- FV (Facts Vault) memory enforcement ---
+        # --- Memoria memory enforcement ---
 
-        def classify_for_fv(command):
-            """Classify a command as mandatory/advisory/None for FV lookup.
+        def unwrap_ssh_command(command):
+            """Extract the remote command from an SSH invocation.
+
+            Handles:
+              ssh user@host "remote command"
+              ssh user@host 'remote command'
+              ssh -i key -p 22 user@host remote command args
+              ssh user@host bash -c "remote command"
+
+            Returns the inner command if SSH wrapper detected, else original command.
+            """
+            cmd = command.strip()
+            if not cmd.startswith("ssh "):
+                return command
+            # Tokenize: skip 'ssh', consume flags (some take args), find host, rest is remote cmd
+            # Flags that take a separate argument:
+            ARG_FLAGS = {{"-i", "-p", "-l", "-o", "-J", "-F", "-L", "-R", "-D", "-W", "-b", "-c", "-E", "-e", "-I", "-m", "-O", "-Q", "-S", "-w"}}
+            parts = cmd.split()
+            i = 1  # skip "ssh"
+            host = None
+            while i < len(parts):
+                tok = parts[i]
+                if tok.startswith("-"):
+                    if tok in ARG_FLAGS and i + 1 < len(parts):
+                        i += 2  # skip flag + its argument
+                    else:
+                        i += 1  # boolean flag like -v, -N, -T
+                else:
+                    # First non-flag token = host
+                    host = tok
+                    i += 1
+                    break
+            if host is None or i >= len(parts):
+                return command  # no remote command (interactive ssh)
+            # Everything after the host is the remote command
+            remote = " ".join(parts[i:]).strip()
+            # Strip surrounding quotes
+            if (remote.startswith('"') and remote.endswith('"')) or \\
+               (remote.startswith("'") and remote.endswith("'")):
+                remote = remote[1:-1].strip()
+            # Handle: bash -c "actual command"
+            m2 = re.match(r'^bash\s+-c\s+["\\'](.*)["\\']\s*$', remote)
+            if m2:
+                remote = m2.group(1).strip()
+            return remote if remote else command
+
+        def classify_for_memoria(command):
+            """Classify a command as mandatory/advisory/None for Memoria lookup.
+
+            Unwraps SSH commands first so `ssh host "sqlmap ..."` matches sqlmap patterns.
 
             Returns:
-                "mandatory" — always query FV, warn if no results
-                "advisory"  — query FV, silently skip if no results
-                None        — skip FV entirely (recon, utils, etc.)
+                "mandatory" — always query Memoria, warn if no results
+                "advisory"  — query Memoria, silently skip if no results
+                None        — skip Memoria entirely (recon, utils, etc.)
             """
-            if not FV_ENABLED:
+            if not MEMORIA_ENABLED:
                 return None
-            for pattern in FV_MANDATORY_PATTERNS:
+            inner = unwrap_ssh_command(command)
+            for pattern in MEMORIA_MANDATORY_PATTERNS:
                 try:
-                    if re.search(pattern, command):
+                    if re.search(pattern, inner):
                         return "mandatory"
                 except re.error:
                     continue
-            for pattern in FV_ADVISORY_PATTERNS:
+            for pattern in MEMORIA_ADVISORY_PATTERNS:
                 try:
-                    if re.search(pattern, command):
+                    if re.search(pattern, inner):
                         return "advisory"
                 except re.error:
                     continue
             return None
 
-        def extract_fv_query(command):
+        def extract_memoria_query(command):
             """Extract a semantic search query from a command.
 
-            Uses TOOL_QUERY_MAP for known tools, falls back to extracting
-            the tool name + target from the command itself.
+            Unwraps SSH commands first. Uses TOOL_QUERY_MAP for known tools,
+            falls back to extracting the tool name + target from the command.
 
             Returns:
                 Search query string, or empty string if no query can be built.
             """
-            # Check TOOL_QUERY_MAP first (tool name at start of command)
-            cmd_stripped = command.strip()
+            # Unwrap SSH wrapper to get inner command
+            cmd_stripped = unwrap_ssh_command(command).strip()
             for tool_name, query_template in TOOL_QUERY_MAP.items():
                 # Match tool name at start, with optional path prefix
                 if re.match(rf"^(?:\S*/)?{{re.escape(tool_name)}}\\b", cmd_stripped):
@@ -408,22 +457,22 @@ def generate_enforce_hook(
                 return f"{{TOOL_QUERY_MAP['impacket']}} {{tool}}"
             return ""
 
-        def query_fv(search_query):
-            """Query FV /search endpoint. Returns list of (score, fact) tuples.
+        def query_memoria(search_query):
+            """Query Memoria /search endpoint. Returns list of (score, fact) tuples.
 
             Uses urllib only (no external deps). Graceful degradation on failure.
             """
             try:
                 import urllib.request
                 import urllib.error
-                url = f"{{FV_ENDPOINT}}/search"
-                payload = json.dumps({{"query": search_query, "top_k": FV_TOP_K}}).encode("utf-8")
+                url = f"{{MEMORIA_ENDPOINT}}/search"
+                payload = json.dumps({{"query": search_query, "top_k": MEMORIA_TOP_K}}).encode("utf-8")
                 req = urllib.request.Request(
                     url, data=payload,
                     headers={{"Content-Type": "application/json"}},
                     method="POST",
                 )
-                with urllib.request.urlopen(req, timeout=FV_TIMEOUT) as resp:
+                with urllib.request.urlopen(req, timeout=MEMORIA_TIMEOUT) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                 results = data.get("results", data.get("facts", []))
                 out = []
@@ -439,48 +488,48 @@ def generate_enforce_hook(
             except Exception:
                 return []
 
-        def inject_fv_results(command, tier):
-            """Query FV and print results to stdout for Claude Code context injection.
+        def inject_memoria_results(command, tier):
+            """Query Memoria and print results to stdout for Claude Code context injection.
 
             Args:
                 command: The Bash command being run
                 tier: "mandatory" or "advisory"
             """
-            search_query = extract_fv_query(command)
+            search_query = extract_memoria_query(command)
             if not search_query:
                 if tier == "mandatory":
-                    print("[OPENKEEL FV] No query could be built for this command. Consider consulting FV memory manually.")
+                    print("[OPENKEEL MEMORIA] No query could be built for this command. Consider consulting Memoria memory manually.")
                 return
 
-            results = query_fv(search_query)
+            results = query_memoria(search_query)
 
             if results:
-                print(f"[OPENKEEL FV] Knowledge recall for: {{search_query}}")
+                print(f"[OPENKEEL MEMORIA] Knowledge recall for: {{search_query}}")
                 for i, (score, fact) in enumerate(results, 1):
                     # Truncate long facts to keep output manageable
                     display = fact if len(fact) <= 200 else fact[:197] + "..."
                     print(f"  {{i}}. [{{score:.2f}}] {{display}}")
-                print("[OPENKEEL FV] Review these facts before proceeding.")
+                print("[OPENKEEL MEMORIA] Review these facts before proceeding.")
             elif tier == "mandatory":
-                print(f"[OPENKEEL FV] No facts found for: {{search_query}}")
-                print("[OPENKEEL FV] WARNING: No FV knowledge for this attack. Consider seeding FV or researching first.")
+                print(f"[OPENKEEL MEMORIA] No facts found for: {{search_query}}")
+                print("[OPENKEEL MEMORIA] WARNING: No Memoria knowledge for this attack. Consider seeding Memoria or researching first.")
             # advisory tier with no results: stay silent
 
-        def check_fv_health():
-            """Check if FV is reachable. Used by session start hook."""
-            if not FV_ENABLED:
+        def check_memoria_health():
+            """Check if Memoria is reachable. Used by session start hook."""
+            if not MEMORIA_ENABLED:
                 return
             try:
                 import urllib.request
-                url = f"{{FV_ENDPOINT}}/health"
+                url = f"{{MEMORIA_ENDPOINT}}/health"
                 req = urllib.request.Request(url, method="GET")
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                 count = data.get("memory_facts", data.get("fact_count", data.get("facts", "?")))
-                print(f"[OPENKEEL FV] Connected — {{count}} facts available")
+                print(f"[OPENKEEL MEMORIA] Connected — {{count}} facts available")
             except Exception:
-                print("[OPENKEEL FV] OFFLINE — FV memory not reachable at {{FV_ENDPOINT}}")
-                print("[OPENKEEL FV] Run: ssh -L 8000:localhost:8000 om@192.168.0.224")
+                print("[OPENKEEL MEMORIA] OFFLINE — Memoria not reachable at {{MEMORIA_ENDPOINT}}")
+                print("[OPENKEEL MEMORIA] Run: ssh -L 8000:localhost:8000 om@192.168.0.224")
 
         def emit_allow_extras():
             """Fire timers and print mission capsule + knowledge capsule on allow path."""
@@ -521,21 +570,21 @@ def generate_enforce_hook(
                 sys.exit(2)
             elif action == "alert":
                 log_event(rule_id, "alert", tool_name, message)
-                # FV query for Bash commands (advisory — after alert)
-                if FV_ENABLED and tool_name == "Bash":
+                # Memoria query for Bash commands (advisory — after alert)
+                if MEMORIA_ENABLED and tool_name == "Bash":
                     command = tool_input.get("command", "")
-                    tier = classify_for_fv(command)
+                    tier = classify_for_memoria(command)
                     if tier:
-                        inject_fv_results(command, tier)
+                        inject_memoria_results(command, tier)
                 emit_allow_extras()
                 sys.exit(0)
             else:
-                # FV query for Bash commands (before allow extras)
-                if FV_ENABLED and tool_name == "Bash":
+                # Memoria query for Bash commands (before allow extras)
+                if MEMORIA_ENABLED and tool_name == "Bash":
                     command = tool_input.get("command", "")
-                    tier = classify_for_fv(command)
+                    tier = classify_for_memoria(command)
                     if tier:
-                        inject_fv_results(command, tier)
+                        inject_memoria_results(command, tier)
                 emit_allow_extras()
                 sys.exit(0)
 

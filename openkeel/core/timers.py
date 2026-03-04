@@ -28,7 +28,7 @@ from openkeel.core.audit import log_event
 logger = logging.getLogger(__name__)
 
 # Pattern the agent can output to register a dynamic timer
-# Example: OPENKEEL-TIMER: name=check_fv interval=60m command="curl -s http://localhost:8000/health" expect="ok" on_fail=warn
+# Example: OPENKEEL-TIMER: name=check_memoria interval=60m command="curl -s http://localhost:8000/health" expect="ok" on_fail=warn
 _TIMER_PATTERN = re.compile(
     r"OPENKEEL-TIMER:\s+"
     r"name=(\S+)\s+"

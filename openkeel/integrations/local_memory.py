@@ -2,7 +2,7 @@
 
 Stores facts in a local SQLite database with full-text search.
 No server, no embeddings, no GPU — just fast keyword search with
-BM25 ranking.  Drop-in replacement for the FV HTTP client when
+BM25 ranking.  Drop-in replacement for the Memoria HTTP client when
 you don't need (or can't run) a full embedding service.
 
 CLI usage:
@@ -249,7 +249,7 @@ class LocalMemory:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
-    # FV-compatible interface (so existing code can use this as drop-in)
+    # Memoria-compatible interface (so existing code can use this as drop-in)
     # ------------------------------------------------------------------
 
     def is_available(self) -> bool:

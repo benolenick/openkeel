@@ -114,15 +114,15 @@ class LearningConfig:
 
 
 @dataclass
-class FvHooksConfig:
-    """FV (Facts Vault) memory enforcement via Claude Code PreToolUse hooks.
+class MemoriaHooksConfig:
+    """Memoria memory enforcement via Claude Code PreToolUse hooks.
 
-    When enabled, the enforcement hook queries FV before attack commands,
+    When enabled, the enforcement hook queries Memoria before attack commands,
     injecting relevant facts as conversation context. Advisory, not blocking.
     """
     enabled: bool = False
-    endpoint: str = "http://127.0.0.1:8000"  # FV server URL
-    timeout: int = 10  # seconds per FV query
+    endpoint: str = "http://127.0.0.1:8000"  # Memoria server URL
+    timeout: int = 10  # seconds per Memoria query
     top_k: int = 5  # number of facts to retrieve
     mandatory_activities: list[str] = field(default_factory=list)  # activity names: always query + warn if empty
     advisory_activities: list[str] = field(default_factory=list)  # activity names: query but don't warn if empty
@@ -164,8 +164,8 @@ class Profile:
     # Learning (cross-session memory)
     learning: LearningConfig = field(default_factory=LearningConfig)
 
-    # FV hooks (memory enforcement in Claude Code hooks)
-    fv_hooks: FvHooksConfig = field(default_factory=FvHooksConfig)
+    # Memoria hooks (memory enforcement in Claude Code hooks)
+    memoria_hooks: MemoriaHooksConfig = field(default_factory=MemoriaHooksConfig)
 
     # Working directory (where to launch the agent)
     work_dir: str = ""  # absolute path; empty = use cwd
@@ -276,10 +276,10 @@ def _parse_learning(raw: dict[str, Any] | None) -> LearningConfig:
     )
 
 
-def _parse_fv_hooks(raw: dict[str, Any] | None) -> FvHooksConfig:
+def _parse_memoria_hooks(raw: dict[str, Any] | None) -> MemoriaHooksConfig:
     if not raw:
-        return FvHooksConfig()
-    return FvHooksConfig(
+        return MemoriaHooksConfig()
+    return MemoriaHooksConfig(
         enabled=raw.get("enabled", False),
         endpoint=raw.get("endpoint", "http://127.0.0.1:8000"),
         timeout=raw.get("timeout", 10),
@@ -313,7 +313,7 @@ def _parse_profile(data: dict[str, Any]) -> Profile:
         sandbox=_parse_sandbox(data.get("sandbox")),
         timers=timers,
         learning=_parse_learning(data.get("learning")),
-        fv_hooks=_parse_fv_hooks(data.get("fv_hooks")),
+        memoria_hooks=_parse_memoria_hooks(data.get("memoria_hooks")),
         work_dir=data.get("work_dir", ""),
         tags=data.get("tags", []),
     )

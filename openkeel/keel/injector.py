@@ -11,21 +11,21 @@ def generate_inject_hook(
     active_mission: str,
     output_path: str | Path,
     *,
-    fv_enabled: bool = False,
-    fv_endpoint: str = "http://127.0.0.1:8000",
+    memoria_enabled: bool = False,
+    memoria_endpoint: str = "http://127.0.0.1:8000",
 ) -> Path:
     """Generate the SessionStart injection hook script.
 
     The generated script reads the active mission file and outputs
     formatted mission state to stdout, which Claude Code injects
-    into the agent's context. Optionally checks FV health.
+    into the agent's context. Optionally checks Memoria health.
 
     Args:
         missions_dir: Path to missions directory
         active_mission: Name of active mission (without .yaml extension)
         output_path: Where to write the generated hook script
-        fv_enabled: Whether to check FV health at session start
-        fv_endpoint: FV server URL for health check
+        memoria_enabled: Whether to check Memoria health at session start
+        memoria_endpoint: Memoria server URL for health check
 
     Returns:
         Path to the generated script
@@ -41,7 +41,7 @@ def generate_inject_hook(
 
         SessionStart hook for Claude Code. Reads the active mission file
         and outputs formatted mission state to stdout for context injection.
-        Optionally checks FV (Facts Vault) health.
+        Optionally checks Memoria health.
 
         DO NOT EDIT — regenerate with: openkeel install
         """
@@ -53,9 +53,9 @@ def generate_inject_hook(
         MISSIONS_DIR = r"{missions_dir_str}"
         ACTIVE_MISSION = r"{active_mission}"
 
-        # FV health check config
-        FV_ENABLED = {fv_enabled!r}
-        FV_ENDPOINT = {json.dumps(fv_endpoint)}
+        # Memoria health check config
+        MEMORIA_ENABLED = {memoria_enabled!r}
+        MEMORIA_ENDPOINT = {json.dumps(memoria_endpoint)}
 
         # Also check a "pointer" file that stores which mission is active
         # This allows `openkeel mission start` to change the active mission
@@ -175,25 +175,25 @@ def generate_inject_hook(
             except Exception:
                 return ""
 
-        def check_fv_health():
-            """Check FV connectivity and print status."""
-            if not FV_ENABLED:
+        def check_memoria_health():
+            """Check Memoria connectivity and print status."""
+            if not MEMORIA_ENABLED:
                 return
             try:
                 import urllib.request
-                url = f"{{FV_ENDPOINT}}/health"
+                url = f"{{MEMORIA_ENDPOINT}}/health"
                 req = urllib.request.Request(url, method="GET")
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                 count = data.get("memory_facts", data.get("fact_count", data.get("facts", "?")))
-                print(f"[OPENKEEL FV] Connected — {{count}} facts available")
+                print(f"[OPENKEEL MEMORIA] Connected — {{count}} facts available")
             except Exception:
-                print(f"[OPENKEEL FV] OFFLINE — FV memory not reachable at {{FV_ENDPOINT}}")
-                print("[OPENKEEL FV] Run: ssh -L 8000:localhost:8000 om@192.168.0.224")
+                print(f"[OPENKEEL MEMORIA] OFFLINE — Memoria not reachable at {{MEMORIA_ENDPOINT}}")
+                print("[OPENKEEL MEMORIA] Run: ssh -L 8000:localhost:8000 om@192.168.0.224")
 
         def main():
-            # FV health check first
-            check_fv_health()
+            # Memoria health check first
+            check_memoria_health()
 
             name = get_active_mission_name()
             if name:

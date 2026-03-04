@@ -285,14 +285,14 @@ def cmd_init(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_fv_hooks_config(profile_name: str | None) -> dict:
-    """Load a profile and resolve FV hooks config into hook-ready format.
+def _resolve_memoria_hooks_config(profile_name: str | None) -> dict:
+    """Load a profile and resolve Memoria hooks config into hook-ready format.
 
     Resolves activity names (e.g. "exploitation") into regex pattern lists
     by looking up the profile's activities definitions.
 
-    Returns a dict with keys matching generate_enforce_hook() FV params,
-    or an empty dict (all disabled) if no profile or FV not enabled.
+    Returns a dict with keys matching generate_enforce_hook() Memoria params,
+    or an empty dict (all disabled) if no profile or Memoria not enabled.
     """
     if not profile_name:
         return {}
@@ -304,8 +304,8 @@ def _resolve_fv_hooks_config(profile_name: str | None) -> dict:
         print(f"  Warning: could not load profile '{profile_name}': {exc}")
         return {}
 
-    fv = profile.fv_hooks
-    if not fv.enabled:
+    memoria = profile.memoria_hooks
+    if not memoria.enabled:
         return {}
 
     # Build activity name -> patterns lookup from profile
@@ -316,27 +316,27 @@ def _resolve_fv_hooks_config(profile_name: str | None) -> dict:
 
     # Resolve mandatory/advisory activity names to regex pattern lists
     mandatory_patterns: list[str] = []
-    for name in fv.mandatory_activities:
+    for name in memoria.mandatory_activities:
         if name in activity_map:
             mandatory_patterns.extend(activity_map[name])
         else:
             print(f"  Warning: mandatory activity '{name}' not found in profile activities")
 
     advisory_patterns: list[str] = []
-    for name in fv.advisory_activities:
+    for name in memoria.advisory_activities:
         if name in activity_map:
             advisory_patterns.extend(activity_map[name])
         else:
             print(f"  Warning: advisory activity '{name}' not found in profile activities")
 
     return {
-        "fv_enabled": True,
-        "fv_endpoint": fv.endpoint,
-        "fv_timeout": fv.timeout,
-        "fv_top_k": fv.top_k,
-        "fv_mandatory_patterns": mandatory_patterns,
-        "fv_advisory_patterns": advisory_patterns,
-        "fv_tool_queries": fv.tool_queries,
+        "memoria_enabled": True,
+        "memoria_endpoint": memoria.endpoint,
+        "memoria_timeout": memoria.timeout,
+        "memoria_top_k": memoria.top_k,
+        "memoria_mandatory_patterns": mandatory_patterns,
+        "memoria_advisory_patterns": advisory_patterns,
+        "memoria_tool_queries": memoria.tool_queries,
     }
 
 
@@ -356,17 +356,17 @@ def cmd_install(args: argparse.Namespace) -> None:
     hooks_dir = Path(config["hooks"]["output_dir"]).expanduser()
     hooks_dir.mkdir(parents=True, exist_ok=True)
 
-    # Resolve FV hooks config from profile (if specified)
+    # Resolve Memoria hooks config from profile (if specified)
     profile_name = getattr(args, "profile", None)
-    fv_config = _resolve_fv_hooks_config(profile_name)
+    memoria_config = _resolve_memoria_hooks_config(profile_name)
 
     print("Generating hook scripts...")
-    if fv_config:
-        print(f"  FV memory enforcement: ENABLED (profile: {profile_name})")
-        print(f"    Endpoint: {fv_config['fv_endpoint']}")
-        print(f"    Mandatory patterns: {len(fv_config['fv_mandatory_patterns'])}")
-        print(f"    Advisory patterns: {len(fv_config['fv_advisory_patterns'])}")
-        print(f"    Tool queries: {len(fv_config['fv_tool_queries'])}")
+    if memoria_config:
+        print(f"  Memoria enforcement: ENABLED (profile: {profile_name})")
+        print(f"    Endpoint: {memoria_config['memoria_endpoint']}")
+        print(f"    Mandatory patterns: {len(memoria_config['memoria_mandatory_patterns'])}")
+        print(f"    Advisory patterns: {len(memoria_config['memoria_advisory_patterns'])}")
+        print(f"    Tool queries: {len(memoria_config['memoria_tool_queries'])}")
 
     # Generate enforcement hook
     enforce_path = generate_enforce_hook(
@@ -375,22 +375,22 @@ def cmd_install(args: argparse.Namespace) -> None:
         active_mission=active_mission,
         log_path=log_path,
         output_path=hooks_dir / "openkeel_enforce.py",
-        **fv_config,
+        **memoria_config,
     )
     print(f"  Enforcement hook: {enforce_path}")
 
-    # Generate injection hook (with FV health check if enabled)
-    inject_fv_kwargs = {}
-    if fv_config:
-        inject_fv_kwargs = {
-            "fv_enabled": True,
-            "fv_endpoint": fv_config["fv_endpoint"],
+    # Generate injection hook (with Memoria health check if enabled)
+    inject_memoria_kwargs = {}
+    if memoria_config:
+        inject_memoria_kwargs = {
+            "memoria_enabled": True,
+            "memoria_endpoint": memoria_config["memoria_endpoint"],
         }
     inject_path = generate_inject_hook(
         missions_dir=missions_dir,
         active_mission=active_mission,
         output_path=hooks_dir / "openkeel_inject.py",
-        **inject_fv_kwargs,
+        **inject_memoria_kwargs,
     )
     print(f"  Injection hook:   {inject_path}")
 
@@ -2161,7 +2161,7 @@ def main() -> None:
     p_install = sub.add_parser("install", help="Generate hooks, wire into agent settings.")
     p_install.add_argument(
         "--profile", "-p",
-        help="Profile name to load FV hooks config from (e.g. pentesting).",
+        help="Profile name to load Memoria hooks config from (e.g. pentesting).",
     )
     p_install.set_defaults(func=cmd_install)
 
