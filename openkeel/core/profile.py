@@ -114,9 +114,26 @@ class LearningConfig:
 
 
 @dataclass
+class FvHooksConfig:
+    """FV (Facts Vault) memory enforcement via Claude Code PreToolUse hooks.
+
+    When enabled, the enforcement hook queries FV before attack commands,
+    injecting relevant facts as conversation context. Advisory, not blocking.
+    """
+    enabled: bool = False
+    endpoint: str = "http://127.0.0.1:8000"  # FV server URL
+    timeout: int = 10  # seconds per FV query
+    top_k: int = 5  # number of facts to retrieve
+    mandatory_activities: list[str] = field(default_factory=list)  # activity names: always query + warn if empty
+    advisory_activities: list[str] = field(default_factory=list)  # activity names: query but don't warn if empty
+    tool_queries: dict[str, str] = field(default_factory=dict)  # tool name -> semantic search query template
+
+
+@dataclass
 class Profile:
     """Complete policy profile for a full-mode session."""
     name: str = ""
+    extends: str = ""  # base profile to inherit from
     description: str = ""
     version: str = "1"
 
@@ -146,6 +163,12 @@ class Profile:
 
     # Learning (cross-session memory)
     learning: LearningConfig = field(default_factory=LearningConfig)
+
+    # FV hooks (memory enforcement in Claude Code hooks)
+    fv_hooks: FvHooksConfig = field(default_factory=FvHooksConfig)
+
+    # Working directory (where to launch the agent)
+    work_dir: str = ""  # absolute path; empty = use cwd
 
     # Metadata
     tags: list[str] = field(default_factory=list)
@@ -253,6 +276,20 @@ def _parse_learning(raw: dict[str, Any] | None) -> LearningConfig:
     )
 
 
+def _parse_fv_hooks(raw: dict[str, Any] | None) -> FvHooksConfig:
+    if not raw:
+        return FvHooksConfig()
+    return FvHooksConfig(
+        enabled=raw.get("enabled", False),
+        endpoint=raw.get("endpoint", "http://127.0.0.1:8000"),
+        timeout=raw.get("timeout", 10),
+        top_k=raw.get("top_k", 5),
+        mandatory_activities=raw.get("mandatory_activities", []),
+        advisory_activities=raw.get("advisory_activities", []),
+        tool_queries=raw.get("tool_queries", {}),
+    )
+
+
 def _parse_profile(data: dict[str, Any]) -> Profile:
     """Convert a raw YAML dict into a typed Profile dataclass."""
     activities = [_parse_activity(a) for a in data.get("activities", [])]
@@ -262,6 +299,7 @@ def _parse_profile(data: dict[str, Any]) -> Profile:
 
     return Profile(
         name=data.get("name", ""),
+        extends=data.get("extends", ""),
         description=data.get("description", ""),
         version=str(data.get("version", "1")),
         blocked=_parse_command_tier(data.get("blocked")),
@@ -275,6 +313,8 @@ def _parse_profile(data: dict[str, Any]) -> Profile:
         sandbox=_parse_sandbox(data.get("sandbox")),
         timers=timers,
         learning=_parse_learning(data.get("learning")),
+        fv_hooks=_parse_fv_hooks(data.get("fv_hooks")),
+        work_dir=data.get("work_dir", ""),
         tags=data.get("tags", []),
     )
 
@@ -297,12 +337,90 @@ def _profile_search_paths() -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
+# Inheritance helpers
+# ---------------------------------------------------------------------------
+
+_MAX_EXTENDS_DEPTH = 5
+
+
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge *overlay* onto *base*.
+
+    - Dicts are merged recursively.
+    - Lists and scalars in overlay replace the base value.
+    - Keys only in base are preserved.
+    """
+    merged = dict(base)
+    for key, val in overlay.items():
+        if (
+            key in merged
+            and isinstance(merged[key], dict)
+            and isinstance(val, dict)
+        ):
+            merged[key] = _deep_merge(merged[key], val)
+        else:
+            merged[key] = val
+    return merged
+
+
+def _resolve_path(name_or_path: str) -> Path:
+    """Resolve a profile name or path to an actual file path."""
+    candidate = Path(name_or_path).expanduser()
+    if candidate.exists() and candidate.is_file():
+        return candidate
+
+    for search_dir in _profile_search_paths():
+        for ext in (".yaml", ".yml"):
+            candidate = search_dir / f"{name_or_path}{ext}"
+            if candidate.exists():
+                return candidate
+
+    raise FileNotFoundError(
+        f"Profile '{name_or_path}' not found. "
+        f"Searched: {', '.join(str(p) for p in _profile_search_paths())}"
+    )
+
+
+def _load_raw_yaml(path: Path) -> dict[str, Any]:
+    """Load a YAML file and return the raw dict."""
+    with path.open("r", encoding="utf-8") as fh:
+        data = yaml.safe_load(fh)
+    if not isinstance(data, dict):
+        raise ValueError(f"Profile file {path} does not contain a YAML mapping.")
+    return data
+
+
+def _resolve_extends(raw: dict[str, Any], depth: int = 0) -> dict[str, Any]:
+    """Recursively resolve the ``extends`` chain via deep-merge.
+
+    The overlay (child) values take precedence over the base (parent).
+    Caps at _MAX_EXTENDS_DEPTH to prevent infinite loops.
+    """
+    extends = raw.get("extends", "")
+    if not extends:
+        return raw
+
+    if depth >= _MAX_EXTENDS_DEPTH:
+        raise ValueError(
+            f"Profile inheritance depth exceeded ({_MAX_EXTENDS_DEPTH}). "
+            f"Check for circular extends."
+        )
+
+    base_path = _resolve_path(extends)
+    base_raw = _load_raw_yaml(base_path)
+    base_raw = _resolve_extends(base_raw, depth + 1)
+
+    # Deep-merge: child overrides base
+    return _deep_merge(base_raw, raw)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
 def load_profile(name_or_path: str) -> Profile:
-    """Load a profile by name or file path.
+    """Load a profile by name or file path, resolving ``extends`` inheritance.
 
     Search order:
       1. Exact file path (if it exists)
@@ -312,33 +430,11 @@ def load_profile(name_or_path: str) -> Profile:
 
     Raises FileNotFoundError if no profile is found.
     """
-    # Try as exact path first
-    candidate = Path(name_or_path).expanduser()
-    if candidate.exists() and candidate.is_file():
-        return _load_profile_file(candidate)
+    path = _resolve_path(name_or_path)
+    raw = _load_raw_yaml(path)
+    raw = _resolve_extends(raw)
 
-    # Search by name
-    for search_dir in _profile_search_paths():
-        for ext in (".yaml", ".yml"):
-            candidate = search_dir / f"{name_or_path}{ext}"
-            if candidate.exists():
-                return _load_profile_file(candidate)
-
-    raise FileNotFoundError(
-        f"Profile '{name_or_path}' not found. "
-        f"Searched: {', '.join(str(p) for p in _profile_search_paths())}"
-    )
-
-
-def _load_profile_file(path: Path) -> Profile:
-    """Load and parse a single profile YAML file."""
-    with path.open("r", encoding="utf-8") as fh:
-        data = yaml.safe_load(fh)
-
-    if not isinstance(data, dict):
-        raise ValueError(f"Profile file {path} does not contain a YAML mapping.")
-
-    profile = _parse_profile(data)
+    profile = _parse_profile(raw)
     if not profile.name:
         profile.name = path.stem
     return profile

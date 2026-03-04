@@ -57,14 +57,19 @@ def _make_hook_entry(command: str) -> dict[str, Any]:
     """Create a hook entry dict for Claude Code settings."""
     return {
         "matcher": "",
-        "hooks": [command],
+        "hooks": [{"type": "command", "command": command}],
     }
 
 
 def _is_openkeel_hook(entry: dict) -> bool:
     """Check if a hook entry belongs to openkeel."""
     hooks = entry.get("hooks", [])
-    return any("openkeel" in h for h in hooks)
+    for h in hooks:
+        if isinstance(h, str) and "openkeel" in h:
+            return True
+        if isinstance(h, dict) and "openkeel" in h.get("command", ""):
+            return True
+    return False
 
 
 def install_hooks(

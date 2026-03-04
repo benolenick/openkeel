@@ -7,20 +7,32 @@ install      Generate hooks, wire into agent settings.
 status       Show constitution + active mission.
 constitution show|test  Display or test rules.
 mission      start|show|update|plan|finding|end  Mission management.
+timer        add|list|remove|clear  Self-timer management.
 profile      list|show|validate  Profile management (full mode).
 run          Launch an agent subprocess with proxy shell (full mode).
 history      Query session history.
 phase        next|show  Phase management (full mode).
+journal      add|show|search|flush  Session journal.
+wiki         add|show|list|categories|search|link|from-journal  Knowledge wiki.
+task         add|show|edit|move|assign|delete|list|search|link|from-journal|stats  Task management.
+board        [project] [--board]  Kanban board view.
+serve        Start the embeddings server.
+serve-status Check embeddings server status.
+reindex      Rebuild all embeddings.
+context      refresh  Context management.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
+import re
 import shutil
 import sys
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +93,21 @@ def _import_claude_adapter():
     return install_hooks, uninstall_hooks
 
 
+def _get_journal():
+    from openkeel.integrations.journal import Journal
+    return Journal()
+
+
+def _get_wiki():
+    from openkeel.integrations.wiki import Wiki
+    return Wiki()
+
+
+def _get_kanban():
+    from openkeel.integrations.kanban import Kanban
+    return Kanban()
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -135,6 +162,45 @@ def _get_active_mission() -> str:
 
 def get_active_mission_name_from_config(config: dict) -> str:
     return config.get("keel", {}).get("active_mission", "")
+
+
+# ---------------------------------------------------------------------------
+# Timer helpers
+# ---------------------------------------------------------------------------
+
+TIMERS_PATH = Path.home() / ".openkeel" / "self_timers.json"
+
+
+def _load_timers() -> list[dict]:
+    if not TIMERS_PATH.exists():
+        return []
+    try:
+        return json.loads(TIMERS_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _save_timers(timers: list[dict]) -> None:
+    TIMERS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    TIMERS_PATH.write_text(json.dumps(timers, indent=2), encoding="utf-8")
+
+
+def _parse_duration(s: str) -> timedelta:
+    """Parse a duration string like '5m', '1h', '2h30m', '90s'."""
+    pattern = r'(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?'
+    m = re.fullmatch(pattern, s.strip())
+    if not m or not any(m.groups()):
+        raise ValueError(f"Invalid duration: {s!r}. Use e.g. 5m, 1h, 2h30m, 90s")
+    hours = int(m.group(1) or 0)
+    minutes = int(m.group(2) or 0)
+    seconds = int(m.group(3) or 0)
+    return timedelta(hours=hours, minutes=minutes, seconds=seconds)
+
+
+def _slugify(text: str) -> str:
+    """Turn a message into a short kebab-case ID."""
+    slug = re.sub(r'[^a-z0-9]+', '-', text.lower()).strip('-')
+    return slug[:40]
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +285,61 @@ def cmd_init(args: argparse.Namespace) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_fv_hooks_config(profile_name: str | None) -> dict:
+    """Load a profile and resolve FV hooks config into hook-ready format.
+
+    Resolves activity names (e.g. "exploitation") into regex pattern lists
+    by looking up the profile's activities definitions.
+
+    Returns a dict with keys matching generate_enforce_hook() FV params,
+    or an empty dict (all disabled) if no profile or FV not enabled.
+    """
+    if not profile_name:
+        return {}
+
+    try:
+        from openkeel.core.profile import load_profile
+        profile = load_profile(profile_name)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"  Warning: could not load profile '{profile_name}': {exc}")
+        return {}
+
+    fv = profile.fv_hooks
+    if not fv.enabled:
+        return {}
+
+    # Build activity name -> patterns lookup from profile
+    activity_map: dict[str, list[str]] = {}
+    for act in profile.activities:
+        if act.name and act.patterns:
+            activity_map[act.name] = act.patterns
+
+    # Resolve mandatory/advisory activity names to regex pattern lists
+    mandatory_patterns: list[str] = []
+    for name in fv.mandatory_activities:
+        if name in activity_map:
+            mandatory_patterns.extend(activity_map[name])
+        else:
+            print(f"  Warning: mandatory activity '{name}' not found in profile activities")
+
+    advisory_patterns: list[str] = []
+    for name in fv.advisory_activities:
+        if name in activity_map:
+            advisory_patterns.extend(activity_map[name])
+        else:
+            print(f"  Warning: advisory activity '{name}' not found in profile activities")
+
+    return {
+        "fv_enabled": True,
+        "fv_endpoint": fv.endpoint,
+        "fv_timeout": fv.timeout,
+        "fv_top_k": fv.top_k,
+        "fv_mandatory_patterns": mandatory_patterns,
+        "fv_advisory_patterns": advisory_patterns,
+        "fv_tool_queries": fv.tool_queries,
+    }
+
+
 def cmd_install(args: argparse.Namespace) -> None:
     load_config, _, _ = _import_config()
     generate_enforce_hook = _import_hooks()
@@ -235,7 +356,17 @@ def cmd_install(args: argparse.Namespace) -> None:
     hooks_dir = Path(config["hooks"]["output_dir"]).expanduser()
     hooks_dir.mkdir(parents=True, exist_ok=True)
 
+    # Resolve FV hooks config from profile (if specified)
+    profile_name = getattr(args, "profile", None)
+    fv_config = _resolve_fv_hooks_config(profile_name)
+
     print("Generating hook scripts...")
+    if fv_config:
+        print(f"  FV memory enforcement: ENABLED (profile: {profile_name})")
+        print(f"    Endpoint: {fv_config['fv_endpoint']}")
+        print(f"    Mandatory patterns: {len(fv_config['fv_mandatory_patterns'])}")
+        print(f"    Advisory patterns: {len(fv_config['fv_advisory_patterns'])}")
+        print(f"    Tool queries: {len(fv_config['fv_tool_queries'])}")
 
     # Generate enforcement hook
     enforce_path = generate_enforce_hook(
@@ -244,14 +375,22 @@ def cmd_install(args: argparse.Namespace) -> None:
         active_mission=active_mission,
         log_path=log_path,
         output_path=hooks_dir / "openkeel_enforce.py",
+        **fv_config,
     )
     print(f"  Enforcement hook: {enforce_path}")
 
-    # Generate injection hook
+    # Generate injection hook (with FV health check if enabled)
+    inject_fv_kwargs = {}
+    if fv_config:
+        inject_fv_kwargs = {
+            "fv_enabled": True,
+            "fv_endpoint": fv_config["fv_endpoint"],
+        }
     inject_path = generate_inject_hook(
         missions_dir=missions_dir,
         active_mission=active_mission,
         output_path=hooks_dir / "openkeel_inject.py",
+        **inject_fv_kwargs,
     )
     print(f"  Injection hook:   {inject_path}")
 
@@ -727,7 +866,6 @@ def cmd_run(args: argparse.Namespace) -> None:
     from openkeel.core.gates import advance_phase
 
     profile_name = args.profile
-    project = args.project or ""
     agent_cmd = args.agent_command
     # Strip leading -- if present (argparse REMAINDER includes it)
     if agent_cmd and agent_cmd[0] == "--":
@@ -750,6 +888,9 @@ def cmd_run(args: argparse.Namespace) -> None:
         print(f"WARNING: Profile '{profile.name}' has issues:")
         for issue in issues:
             print(f"  - {issue}")
+
+    # Project = profile name (unified concept)
+    project = profile.name
 
     # Generate session ID
     session_id = str(uuid.uuid4())[:12]
@@ -1105,7 +1246,6 @@ def cmd_launch(args: argparse.Namespace) -> None:
     from openkeel.launch import launch
     launch(
         agent_name=getattr(args, "agent", "") or "",
-        project=getattr(args, "project", "") or "",
     )
 
 
@@ -1199,6 +1339,798 @@ def cmd_memory_delete(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Timer commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_timer_add(args: argparse.Namespace) -> None:
+    """Add a self-timer."""
+    duration = _parse_duration(args.in_duration)
+    now = datetime.now(timezone.utc)
+    fire_at = now + duration
+
+    timer_id = _slugify(args.message)
+    timers = _load_timers()
+
+    # Deduplicate by ID
+    timers = [t for t in timers if t.get("id") != timer_id]
+
+    timer = {
+        "id": timer_id,
+        "message": args.message,
+        "fire_at": fire_at.isoformat(),
+        "created_at": now.isoformat(),
+        "repeat_minutes": int(duration.total_seconds() // 60) if args.repeat else None,
+        "fired": False,
+    }
+    timers.append(timer)
+    _save_timers(timers)
+
+    repeat_note = f" (repeats every {timer['repeat_minutes']}m)" if args.repeat else ""
+    print(f"Timer set: \"{args.message}\" fires in {args.in_duration}{repeat_note}")
+    print(f"  ID: {timer_id}")
+    print(f"  Fire at: {fire_at.strftime('%H:%M:%S UTC')}")
+
+
+def cmd_timer_list(args: argparse.Namespace) -> None:
+    """List active timers."""
+    timers = _load_timers()
+    active = [t for t in timers if not t.get("fired")]
+    if not active:
+        print("No active timers.")
+        return
+
+    now = datetime.now(timezone.utc)
+    print(f"{'ID':<30} {'Message':<35} {'Fires in':<15} {'Repeat'}")
+    print("-" * 90)
+    for t in active:
+        fire_at = datetime.fromisoformat(t["fire_at"])
+        delta = fire_at - now
+        if delta.total_seconds() <= 0:
+            remaining = "OVERDUE"
+        else:
+            mins, secs = divmod(int(delta.total_seconds()), 60)
+            hours, mins = divmod(mins, 60)
+            if hours:
+                remaining = f"{hours}h {mins}m"
+            elif mins:
+                remaining = f"{mins}m {secs}s"
+            else:
+                remaining = f"{secs}s"
+
+        repeat = f"every {t['repeat_minutes']}m" if t.get("repeat_minutes") else "-"
+        print(f"{t['id']:<30} {t['message']:<35} {remaining:<15} {repeat}")
+
+
+def cmd_timer_remove(args: argparse.Namespace) -> None:
+    """Remove a timer by ID."""
+    timers = _load_timers()
+    before = len(timers)
+    timers = [t for t in timers if t.get("id") != args.timer_id]
+    if len(timers) == before:
+        print(f"No timer found with ID: {args.timer_id}")
+        return
+    _save_timers(timers)
+    print(f"Removed timer: {args.timer_id}")
+
+
+def cmd_timer_clear(args: argparse.Namespace) -> None:
+    """Remove all timers."""
+    _save_timers([])
+    print("All timers cleared.")
+
+
+# ---------------------------------------------------------------------------
+# Journal commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_journal_add(args: argparse.Namespace) -> None:
+    journal = _get_journal()
+    entry_id = journal.add_entry(
+        body=args.body,
+        title=getattr(args, 'title', '') or '',
+        project=args.project,
+        entry_type=args.entry_type,
+        tags=args.tags,
+        session_id=getattr(args, 'session_id', '') or '',
+        mission_name=getattr(args, 'mission_name', '') or '',
+    )
+    print(f"Journal entry #{entry_id} added.")
+    if args.project:
+        print(f"  project: {args.project}")
+    journal.close()
+
+
+def cmd_journal_show(args: argparse.Namespace) -> None:
+    journal = _get_journal()
+    entries = journal.get_entries(
+        project=args.project,
+        limit=args.limit,
+        entry_type=args.entry_type,
+    )
+    if not entries:
+        print("No journal entries found.")
+        journal.close()
+        return
+    import datetime as dt
+    for e in entries:
+        ts = dt.datetime.fromtimestamp(e['timestamp']).strftime('%Y-%m-%d %H:%M')
+        title = e.get('title') or '(untitled)'
+        project_tag = f" [{e['project']}]" if e.get('project') else ""
+        etype = f" ({e['entry_type']})" if e.get('entry_type') else ""
+        print(f"  #{e['id']} {ts}{project_tag}{etype}")
+        print(f"    {title}")
+        body_preview = (e.get('body') or '')[:120]
+        if body_preview:
+            print(f"    {body_preview}")
+        print()
+    journal.close()
+
+
+def cmd_journal_search(args: argparse.Namespace) -> None:
+    journal = _get_journal()
+    if args.semantic:
+        results = journal.search_semantic(args.query, top_k=args.top, project=args.project)
+    else:
+        results = journal.search_keyword(args.query, top_k=args.top, project=args.project)
+    if not results:
+        print(f"No results for: {args.query}")
+        journal.close()
+        return
+    mode = "semantic" if args.semantic else "keyword"
+    print(f"Journal search ({mode}): {args.query}\n")
+    for r in results:
+        score = r.get('score', 0)
+        project_tag = f" [{r.get('project', '')}]" if r.get('project') else ""
+        title = r.get('title', '') or '(untitled)'
+        print(f"  #{r.get('id', '?')} (score: {score:.2f}){project_tag}")
+        print(f"    {title}")
+        body = (r.get('body') or r.get('text_preview') or '')[:120]
+        if body:
+            print(f"    {body}")
+        print()
+    journal.close()
+
+
+def cmd_journal_flush(args: argparse.Namespace) -> None:
+    """Read enforcement.log, extract session summary, auto-promote decisions to wiki."""
+    from openkeel.config import load_config
+    config = load_config()
+    log_path = Path(config["constitution"]["log_path"]).expanduser()
+
+    if not log_path.exists():
+        print(f"No enforcement log at {log_path}")
+        return
+
+    # Read recent log entries
+    entries = []
+    try:
+        with open(log_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+    except OSError as exc:
+        print(f"Error reading log: {exc}")
+        return
+
+    if not entries:
+        print("No entries in enforcement log.")
+        return
+
+    # Group by action
+    denies = [e for e in entries if e.get("action") == "deny"]
+    alerts = [e for e in entries if e.get("action") == "alert"]
+    allows = len(entries) - len(denies) - len(alerts)
+
+    # Build summary
+    accomplishments = [f"Processed {len(entries)} tool calls ({allows} allowed, {len(denies)} denied, {len(alerts)} alerts)"]
+    decisions = []
+    blockers = []
+
+    if denies:
+        unique_rules = set(e.get("rule_id", "unknown") for e in denies)
+        decisions.append(f"Blocked {len(denies)} calls via rules: {', '.join(unique_rules)}")
+        for d in denies[:3]:
+            blockers.append(f"Denied: {d.get('message', 'unknown')[:80]}")
+
+    journal = _get_journal()
+    session_id = args.session_id if hasattr(args, 'session_id') and args.session_id else ""
+    project = args.project if hasattr(args, 'project') and args.project else ""
+
+    entry_id = journal.add_session_summary(
+        session_id=session_id,
+        project=project,
+        accomplishments=accomplishments,
+        decisions=decisions,
+        blockers=blockers,
+    )
+    print(f"Flushed enforcement log to journal entry #{entry_id}")
+    print(f"  {len(entries)} events summarized")
+    if decisions:
+        print(f"  {len(decisions)} decisions promoted to wiki")
+    journal.close()
+
+
+# ---------------------------------------------------------------------------
+# Wiki commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_wiki_add(args: argparse.Namespace) -> None:
+    wiki = _get_wiki()
+    page_id = wiki.add_page(
+        title=args.title,
+        body=args.body,
+        category=args.category,
+        project=args.project,
+        tags=args.tags,
+    )
+    print(f"Wiki page #{page_id}: {args.title}")
+    if args.category:
+        print(f"  category: {args.category}")
+    wiki.close()
+
+
+def cmd_wiki_show(args: argparse.Namespace) -> None:
+    wiki = _get_wiki()
+    page = wiki.get_page(args.slug)
+    if not page:
+        print(f"No wiki page with slug: {args.slug}")
+        wiki.close()
+        return
+    _print_section(page.get('title', args.slug))
+    if page.get('category'):
+        print(f"Category: {page['category']}")
+    if page.get('project'):
+        print(f"Project: {page['project']}")
+    if page.get('tags'):
+        print(f"Tags: {page['tags']}")
+    print()
+    print(page.get('body', ''))
+    links = page.get('links', [])
+    if links:
+        print(f"\nLinked pages: {', '.join(links)}")
+    wiki.close()
+
+
+def cmd_wiki_list(args: argparse.Namespace) -> None:
+    wiki = _get_wiki()
+    pages = wiki.list_pages(
+        category=getattr(args, 'category', '') or '',
+        project=getattr(args, 'project', '') or '',
+    )
+    if not pages:
+        print("No wiki pages found.")
+        wiki.close()
+        return
+    import datetime as dt
+    for p in pages:
+        ts = dt.datetime.fromtimestamp(p['updated_at']).strftime('%Y-%m-%d %H:%M')
+        cat = f" [{p['category']}]" if p.get('category') else ""
+        proj = f" ({p['project']})" if p.get('project') else ""
+        print(f"  {p['slug']}{cat}{proj} — {ts}")
+    wiki.close()
+
+
+def cmd_wiki_categories(args: argparse.Namespace) -> None:
+    wiki = _get_wiki()
+    cats = wiki.list_categories()
+    if not cats:
+        print("No categories found.")
+        wiki.close()
+        return
+    print("Wiki categories:\n")
+    for c in cats:
+        print(f"  {c['category']}: {c['count']} pages")
+    wiki.close()
+
+
+def cmd_wiki_search(args: argparse.Namespace) -> None:
+    wiki = _get_wiki()
+    if args.semantic:
+        results = wiki.search_semantic(args.query, top_k=args.top)
+    else:
+        results = wiki.search_keyword(args.query, top_k=args.top)
+    if not results:
+        print(f"No results for: {args.query}")
+        wiki.close()
+        return
+    mode = "semantic" if args.semantic else "keyword"
+    print(f"Wiki search ({mode}): {args.query}\n")
+    for r in results:
+        score = r.get('score', 0)
+        slug = r.get('slug', '?')
+        title = r.get('title', slug)
+        print(f"  {slug} (score: {score:.2f})")
+        print(f"    {title}")
+        body = (r.get('body') or r.get('text_preview') or '')[:120]
+        if body:
+            print(f"    {body}")
+        print()
+    wiki.close()
+
+
+def cmd_wiki_link(args: argparse.Namespace) -> None:
+    wiki = _get_wiki()
+    ok = wiki.link_pages(args.from_slug, args.to_slug)
+    if ok:
+        print(f"Linked: {args.from_slug} -> {args.to_slug}")
+    else:
+        print(f"Failed to link. Check that both slugs exist.")
+    wiki.close()
+
+
+def cmd_wiki_from_journal(args: argparse.Namespace) -> None:
+    wiki = _get_wiki()
+    try:
+        page_id = wiki.from_journal(
+            journal_id=args.journal_id,
+            title=getattr(args, 'title', '') or '',
+            category=getattr(args, 'category', '') or '',
+        )
+        print(f"Created wiki page #{page_id} from journal entry #{args.journal_id}")
+    except ValueError as exc:
+        print(f"Error: {exc}")
+    wiki.close()
+
+
+# ---------------------------------------------------------------------------
+# Serve commands (embeddings server)
+# ---------------------------------------------------------------------------
+
+
+def cmd_serve(args: argparse.Namespace) -> None:
+    """Start the embeddings server."""
+    from openkeel.integrations.embeddings_server import run_server
+    port = getattr(args, 'port', 7437) or 7437
+    print(f"Starting embeddings server on port {port}...")
+    run_server(port=port)
+
+
+def cmd_serve_status(args: argparse.Namespace) -> None:
+    """Check embeddings server status."""
+    from openkeel.integrations.embeddings_client import EmbeddingsClient
+    client = EmbeddingsClient()
+    if client.is_available():
+        print("Embeddings server: RUNNING")
+    else:
+        print("Embeddings server: NOT RUNNING")
+        print("  Start with: openkeel serve")
+
+
+def cmd_reindex(args: argparse.Namespace) -> None:
+    """Rebuild all embeddings."""
+    from openkeel.integrations.embeddings_client import EmbeddingsClient
+    client = EmbeddingsClient()
+    if not client.is_available():
+        print("Embeddings server is not running. Start with: openkeel serve")
+        return
+    print("Reindexing all journal and wiki entries...")
+    ok = client.reindex()
+    if ok:
+        print("Reindex complete.")
+    else:
+        print("Reindex failed.")
+
+
+# ---------------------------------------------------------------------------
+# Task / Kanban commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_task_add(args: argparse.Namespace) -> None:
+    """Create a new task."""
+    kanban = _get_kanban()
+    due = None
+    if getattr(args, "due", None):
+        try:
+            due = datetime.strptime(args.due, "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            ).timestamp()
+        except ValueError:
+            print(f"Invalid date format: {args.due} (expected YYYY-MM-DD)")
+            kanban.close()
+            return
+
+    task_id = kanban.add_task(
+        title=args.title,
+        description=getattr(args, "desc", "") or "",
+        priority=getattr(args, "priority", "medium") or "medium",
+        type=getattr(args, "type", "task") or "task",
+        project=getattr(args, "project", "") or "",
+        tags=getattr(args, "tags", "") or "",
+        assigned_to=getattr(args, "assign", "") or "",
+        board=getattr(args, "board", "default") or "default",
+        due_date=due,
+        parent_id=getattr(args, "parent", None),
+    )
+    kanban.close()
+    print(f"Task #{task_id} created: {args.title}")
+
+
+def cmd_task_show(args: argparse.Namespace) -> None:
+    """Show full task details."""
+    kanban = _get_kanban()
+    task = kanban.get_task(args.id)
+    kanban.close()
+
+    if not task:
+        print(f"Task #{args.id} not found.")
+        return
+
+    ts_created = datetime.fromtimestamp(task["created_at"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+    ts_updated = datetime.fromtimestamp(task["updated_at"], tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+    print(f"Task #{task['id']}: {task['title']}")
+    print(f"  Status:   {task['status']}")
+    print(f"  Priority: {task['priority']}")
+    print(f"  Type:     {task['type']}")
+    if task["project"]:
+        print(f"  Project:  {task['project']}")
+    if task["board"] != "default":
+        print(f"  Board:    {task['board']}")
+    if task["assigned_to"]:
+        print(f"  Assigned: {task['assigned_to']}")
+    if task["tags"]:
+        print(f"  Tags:     {task['tags']}")
+    if task["due_date"]:
+        due = datetime.fromtimestamp(task["due_date"], tz=timezone.utc).strftime("%Y-%m-%d")
+        print(f"  Due:      {due}")
+    if task["parent_id"]:
+        print(f"  Parent:   #{task['parent_id']}")
+    print(f"  Created:  {ts_created}")
+    print(f"  Updated:  {ts_updated}")
+
+    if task.get("description"):
+        print(f"\n{task['description']}")
+
+    subtasks = task.get("subtasks", [])
+    if subtasks:
+        print(f"\nSubtasks ({len(subtasks)}):")
+        for st in subtasks:
+            marker = "x" if st["status"] == "done" else " "
+            print(f"  [{marker}] #{st['id']} {st['title']} ({st['status']})")
+
+    wiki_links = task.get("wiki_links", [])
+    if wiki_links:
+        print(f"\nLinked wiki pages ({len(wiki_links)}):")
+        for wl in wiki_links:
+            cat = f" ({wl['category']})" if wl.get("category") else ""
+            print(f"  - {wl['slug']}: {wl['title']}{cat}")
+
+
+def cmd_task_edit(args: argparse.Namespace) -> None:
+    """Update task fields."""
+    kanban = _get_kanban()
+    fields: dict[str, Any] = {}
+    if getattr(args, "title", None):
+        fields["title"] = args.title
+    if getattr(args, "desc", None) is not None:
+        fields["description"] = args.desc
+    if getattr(args, "priority", None):
+        fields["priority"] = args.priority
+    if getattr(args, "type", None):
+        fields["type"] = args.type
+    if getattr(args, "tags", None) is not None:
+        fields["tags"] = args.tags
+    if getattr(args, "board", None):
+        fields["board"] = args.board
+    if getattr(args, "due", None):
+        try:
+            fields["due_date"] = datetime.strptime(args.due, "%Y-%m-%d").replace(
+                tzinfo=timezone.utc
+            ).timestamp()
+        except ValueError:
+            print(f"Invalid date format: {args.due}")
+            kanban.close()
+            return
+
+    if not fields:
+        print("No fields to update.")
+        kanban.close()
+        return
+
+    ok = kanban.update_task(args.id, **fields)
+    kanban.close()
+    if ok:
+        print(f"Task #{args.id} updated.")
+    else:
+        print(f"Task #{args.id} not found.")
+
+
+def cmd_task_move(args: argparse.Namespace) -> None:
+    """Change task status."""
+    kanban = _get_kanban()
+    ok = kanban.move(args.id, args.status)
+    kanban.close()
+    if ok:
+        print(f"Task #{args.id} -> {args.status}")
+    else:
+        print(f"Failed to move task #{args.id}. Check ID and status value.")
+
+
+def cmd_task_assign(args: argparse.Namespace) -> None:
+    """Assign task to an agent."""
+    kanban = _get_kanban()
+    ok = kanban.assign(args.id, args.agent)
+    kanban.close()
+    if ok:
+        print(f"Task #{args.id} assigned to {args.agent}")
+    else:
+        print(f"Task #{args.id} not found.")
+
+
+def cmd_task_delete(args: argparse.Namespace) -> None:
+    """Delete a task."""
+    kanban = _get_kanban()
+    ok = kanban.delete_task(args.id)
+    kanban.close()
+    if ok:
+        print(f"Task #{args.id} deleted.")
+    else:
+        print(f"Task #{args.id} not found.")
+
+
+def cmd_task_list(args: argparse.Namespace) -> None:
+    """List tasks with optional filters."""
+    kanban = _get_kanban()
+    tasks = kanban.list_tasks(
+        status=getattr(args, "status", "") or "",
+        project=getattr(args, "project", "") or "",
+        board=getattr(args, "board", "") or "",
+        type=getattr(args, "type", "") or "",
+        assigned_to=getattr(args, "assigned", "") or "",
+    )
+    kanban.close()
+
+    if not tasks:
+        print("No tasks found.")
+        return
+
+    for t in tasks:
+        from openkeel.integrations.kanban import _priority_badge, _type_badge
+        pri = _priority_badge(t.get("priority", "medium"))
+        tb = _type_badge(t.get("type", "task"))
+        assignee = f" @{t['assigned_to']}" if t.get("assigned_to") else ""
+        board_tag = f" [{t['board']}]" if t.get("board", "default") != "default" else ""
+        print(f"  #{t['id']:>3}  {t['status']:<12} {t['title']}{pri}{tb}{assignee}{board_tag}")
+
+
+def cmd_task_search(args: argparse.Namespace) -> None:
+    """Search tasks by keyword or semantic similarity."""
+    kanban = _get_kanban()
+    if getattr(args, "semantic", False):
+        results = kanban.search_semantic(args.query, top_k=args.top, project=getattr(args, "project", "") or "")
+    else:
+        results = kanban.search_keyword(args.query, top_k=args.top, project=getattr(args, "project", "") or "")
+    kanban.close()
+
+    if not results:
+        print("No matching tasks found.")
+        return
+
+    for t in results:
+        score = t.get("score", 0)
+        print(f"  #{t['id']:>3}  [{score:.2f}]  {t['status']:<12} {t['title']}")
+
+
+def cmd_task_link(args: argparse.Namespace) -> None:
+    """Link a task to a wiki page."""
+    kanban = _get_kanban()
+    ok = kanban.link_wiki(args.id, args.wiki_slug)
+    kanban.close()
+    if ok:
+        print(f"Task #{args.id} linked to wiki:{args.wiki_slug}")
+    else:
+        print("Link failed. Check task ID and wiki slug exist.")
+
+
+def cmd_task_from_journal(args: argparse.Namespace) -> None:
+    """Promote a journal entry to a task."""
+    kanban = _get_kanban()
+    try:
+        task_id = kanban.from_journal(
+            args.journal_id,
+            priority=getattr(args, "priority", "medium") or "medium",
+            project=getattr(args, "project", "") or "",
+        )
+        print(f"Task #{task_id} created from journal entry #{args.journal_id}")
+    except ValueError as exc:
+        print(str(exc))
+    kanban.close()
+
+
+def cmd_task_stats(args: argparse.Namespace) -> None:
+    """Show task statistics."""
+    kanban = _get_kanban()
+    s = kanban.stats(project=getattr(args, "project", "") or "")
+    kanban.close()
+
+    project_label = f" (project: {args.project})" if getattr(args, "project", "") else ""
+    print(f"Task Statistics{project_label}")
+    print(f"  Total: {s['total']}")
+
+    if s["by_status"]:
+        parts = [f"{k}: {v}" for k, v in sorted(s["by_status"].items())]
+        print(f"  Status:   {', '.join(parts)}")
+    if s["by_type"]:
+        parts = [f"{k}: {v}" for k, v in sorted(s["by_type"].items())]
+        print(f"  Type:     {', '.join(parts)}")
+    if s["by_priority"]:
+        parts = [f"{k}: {v}" for k, v in sorted(s["by_priority"].items())]
+        print(f"  Priority: {', '.join(parts)}")
+    if s["by_assignee"]:
+        parts = [f"{k}: {v}" for k, v in sorted(s["by_assignee"].items())]
+        print(f"  Assigned: {', '.join(parts)}")
+
+
+def cmd_board(args: argparse.Namespace) -> None:
+    """Show kanban board column view."""
+    kanban = _get_kanban()
+    project = getattr(args, "project", "") or ""
+    board = getattr(args, "board", "") or ""
+    view = kanban.board_view(project=project, board=board)
+    kanban.close()
+
+    total = sum(len(v) for v in view.values())
+    if total == 0:
+        print("No tasks found.")
+        return
+
+    # Detect terminal width
+    try:
+        term_width = shutil.get_terminal_size().columns
+    except Exception:
+        term_width = 80
+
+    columns = [
+        ("TODO", "todo"),
+        ("IN PROGRESS", "in_progress"),
+        ("DONE", "done"),
+        ("BLOCKED", "blocked"),
+    ]
+    # Only show columns that have tasks (or TODO/IN PROGRESS always)
+    active_cols = [
+        (label, key) for label, key in columns
+        if view[key] or key in ("todo", "in_progress")
+    ]
+
+    col_width = max(16, (term_width - 2) // len(active_cols) - 2)
+
+    # Print headers
+    header_line = "  ".join(label.ljust(col_width) for label, _ in active_cols)
+    sep_line = "  ".join(("-" * len(label)).ljust(col_width) for label, _ in active_cols)
+    print(f"\n{header_line}")
+    print(sep_line)
+
+    # Find max rows
+    max_rows = max(len(view[key]) for _, key in active_cols) if active_cols else 0
+
+    from openkeel.integrations.kanban import _priority_badge, _type_badge
+
+    for row_idx in range(max_rows):
+        cells = []
+        for _, key in active_cols:
+            tasks = view[key]
+            if row_idx < len(tasks):
+                t = tasks[row_idx]
+                pri = _priority_badge(t.get("priority", "medium"))
+                tb = _type_badge(t.get("type", "task"))
+                cell = f"#{t['id']} {t['title']}{pri}{tb}"
+                if len(cell) > col_width:
+                    cell = cell[: col_width - 2] + ".."
+                cells.append(cell.ljust(col_width))
+            else:
+                cells.append(" " * col_width)
+        print("  ".join(cells))
+
+    # Summary
+    counts = {k: len(v) for k, v in view.items()}
+    board_count = 1  # simplified
+    print(
+        f"\n  {total} tasks ({counts['todo']} todo, {counts['in_progress']} in progress, "
+        f"{counts['done']} done, {counts['blocked']} blocked)"
+    )
+
+
+def cmd_board_list(args: argparse.Namespace) -> None:
+    """List all boards."""
+    kanban = _get_kanban()
+    boards = kanban.list_boards(project=getattr(args, "project", "") or "")
+    kanban.close()
+
+    if not boards:
+        print("No boards found.")
+        return
+
+    for b in boards:
+        statuses = b.get("statuses", "")
+        print(f"  {b['board']:<20} {b['count']} tasks  ({statuses})")
+
+
+# ---------------------------------------------------------------------------
+# Context refresh
+# ---------------------------------------------------------------------------
+
+
+def cmd_context_refresh(args: argparse.Namespace) -> None:
+    """Rebuild session_context.json from journal + wiki + tasks."""
+    journal = _get_journal()
+    wiki = _get_wiki()
+    kanban = _get_kanban()
+
+    project = getattr(args, 'project', '') or ''
+
+    journal_summary = journal.get_recent_narrative(project=project, limit=5)
+    wiki_summary = wiki.get_relevant_pages(
+        query=project if project else "project context",
+        top_k=3,
+    )
+    task_summary = kanban.get_task_summary(project=project)
+
+    # Build capsule line (one-liner for PreToolUse)
+    capsule_parts = []
+    if journal_summary:
+        # Extract first title from journal
+        for line in journal_summary.split('\n'):
+            if line.startswith('### '):
+                capsule_parts.append(line[4:].strip()[:60])
+                break
+    if wiki_summary:
+        for line in wiki_summary.split('\n'):
+            if line.startswith('### '):
+                capsule_parts.append(line[4:].strip()[:60])
+                break
+    if task_summary:
+        # Count active (non-done) tasks for capsule
+        active = task_summary.count("- #")
+        if active:
+            capsule_parts.append(f"{active} active tasks")
+
+    capsule_line = " | ".join(capsule_parts) if capsule_parts else ""
+
+    context = {
+        "journal_summary": journal_summary,
+        "wiki_summary": wiki_summary,
+        "task_summary": task_summary,
+        "capsule_line": capsule_line,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    context_path = Path.home() / ".openkeel" / "session_context.json"
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.write_text(json.dumps(context, indent=2), encoding="utf-8")
+
+    print(f"Context refreshed: {context_path}")
+    if journal_summary:
+        lines = journal_summary.count('\n')
+        print(f"  Journal: {lines} lines")
+    else:
+        print("  Journal: (empty)")
+    if wiki_summary:
+        lines = wiki_summary.count('\n')
+        print(f"  Wiki: {lines} lines")
+    else:
+        print("  Wiki: (empty)")
+    if task_summary:
+        lines = task_summary.count('\n')
+        print(f"  Tasks: {lines} lines")
+    else:
+        print("  Tasks: (empty)")
+    if capsule_line:
+        print(f"  Capsule: {capsule_line[:80]}")
+
+    journal.close()
+    wiki.close()
+    kanban.close()
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1219,7 +2151,6 @@ def main() -> None:
     # launch (also the default when no subcommand given)
     p_launch = sub.add_parser("launch", help="Launch an agent with context injection (default).")
     p_launch.add_argument("agent", nargs="?", default="", help="Agent name (claude, gemini, codex).")
-    p_launch.add_argument("project", nargs="?", default="", help="Project name (auto-detected from cwd).")
     p_launch.set_defaults(func=cmd_launch)
 
     # init
@@ -1228,6 +2159,10 @@ def main() -> None:
 
     # install
     p_install = sub.add_parser("install", help="Generate hooks, wire into agent settings.")
+    p_install.add_argument(
+        "--profile", "-p",
+        help="Profile name to load FV hooks config from (e.g. pentesting).",
+    )
     p_install.set_defaults(func=cmd_install)
 
     # status
@@ -1328,7 +2263,6 @@ def main() -> None:
         description="Run an agent subprocess with SHELL=openkeel-exec for command interception.",
     )
     p_run.add_argument("--profile", "-p", required=True, help="Profile name or path.")
-    p_run.add_argument("--project", help="Project name (for history tracking).")
     p_run.add_argument("agent_command", nargs=argparse.REMAINDER, help="Agent command and arguments (after --).")
     p_run.set_defaults(func=cmd_run)
 
@@ -1389,6 +2323,215 @@ def main() -> None:
     p_mem_delete.set_defaults(func=cmd_memory_delete)
 
     p_memory.set_defaults(func=lambda a: cmd_memory_stats(a) if not getattr(a, 'memory_command', None) else None)
+
+    # timer
+    p_timer = sub.add_parser("timer", help="Self-timer management.")
+    timer_sub = p_timer.add_subparsers(dest="timer_command", metavar="<subcommand>")
+    timer_sub.required = True
+
+    p_timer_add = timer_sub.add_parser("add", help="Set a self-timer.")
+    p_timer_add.add_argument("message", help="Reminder message.")
+    p_timer_add.add_argument("--in", dest="in_duration", required=True, help="Duration until fire (e.g. 5m, 1h, 2h30m).")
+    p_timer_add.add_argument("--repeat", action="store_true", help="Repeat at the same interval.")
+    p_timer_add.set_defaults(func=cmd_timer_add)
+
+    p_timer_list = timer_sub.add_parser("list", help="Show active timers.")
+    p_timer_list.set_defaults(func=cmd_timer_list)
+
+    p_timer_remove = timer_sub.add_parser("remove", help="Cancel a timer by ID.")
+    p_timer_remove.add_argument("timer_id", help="Timer ID to remove.")
+    p_timer_remove.set_defaults(func=cmd_timer_remove)
+
+    p_timer_clear = timer_sub.add_parser("clear", help="Remove all timers.")
+    p_timer_clear.set_defaults(func=cmd_timer_clear)
+
+    # -- journal ---------------------------------------------------------------
+
+    p_journal = sub.add_parser("journal", help="Session journal management.")
+    journal_sub = p_journal.add_subparsers(dest="journal_command", metavar="<subcommand>")
+    journal_sub.required = True
+
+    p_jadd = journal_sub.add_parser("add", help="Add a journal entry.")
+    p_jadd.add_argument("body", help="Entry body text.")
+    p_jadd.add_argument("--title", "-T", default="", help="Entry title.")
+    p_jadd.add_argument("--project", "-p", default="", help="Project name.")
+    p_jadd.add_argument("--entry-type", default="manual", help="Entry type (manual/session_end/milestone).")
+    p_jadd.add_argument("--tags", "-t", default="", help="Comma-separated tags.")
+    p_jadd.add_argument("--session-id", default="", help="Session identifier.")
+    p_jadd.add_argument("--mission-name", default="", help="Associated mission name.")
+    p_jadd.set_defaults(func=cmd_journal_add)
+
+    p_jshow = journal_sub.add_parser("show", help="Show recent journal entries.")
+    p_jshow.add_argument("--project", "-p", default="", help="Filter by project.")
+    p_jshow.add_argument("--limit", "-n", type=int, default=10, help="Number of entries.")
+    p_jshow.add_argument("--entry-type", default="", help="Filter by entry type.")
+    p_jshow.set_defaults(func=cmd_journal_show)
+
+    p_jsearch = journal_sub.add_parser("search", help="Search journal entries.")
+    p_jsearch.add_argument("query", help="Search query.")
+    p_jsearch.add_argument("--top", "-n", type=int, default=10, help="Number of results.")
+    p_jsearch.add_argument("--project", "-p", default="", help="Filter by project.")
+    p_jsearch.add_argument("--semantic", "-s", action="store_true", help="Use semantic search (requires embeddings server).")
+    p_jsearch.set_defaults(func=cmd_journal_search)
+
+    p_jflush = journal_sub.add_parser("flush", help="Flush enforcement log to journal.")
+    p_jflush.add_argument("--project", "-p", default="", help="Project name.")
+    p_jflush.add_argument("--session-id", default="", help="Session identifier.")
+    p_jflush.set_defaults(func=cmd_journal_flush)
+
+    # -- wiki ------------------------------------------------------------------
+
+    p_wiki = sub.add_parser("wiki", help="Knowledge wiki management.")
+    wiki_sub = p_wiki.add_subparsers(dest="wiki_command", metavar="<subcommand>")
+    wiki_sub.required = True
+
+    p_wadd = wiki_sub.add_parser("add", help="Add or append to a wiki page.")
+    p_wadd.add_argument("title", help="Page title.")
+    p_wadd.add_argument("body", help="Page body content.")
+    p_wadd.add_argument("--category", "-c", default="", help="Page category.")
+    p_wadd.add_argument("--project", "-p", default="", help="Project name.")
+    p_wadd.add_argument("--tags", "-t", default="", help="Comma-separated tags.")
+    p_wadd.set_defaults(func=cmd_wiki_add)
+
+    p_wshow = wiki_sub.add_parser("show", help="Display a wiki page.")
+    p_wshow.add_argument("slug", help="Page slug.")
+    p_wshow.set_defaults(func=cmd_wiki_show)
+
+    p_wlist = wiki_sub.add_parser("list", help="List wiki pages.")
+    p_wlist.add_argument("--category", "-c", default="", help="Filter by category.")
+    p_wlist.add_argument("--project", "-p", default="", help="Filter by project.")
+    p_wlist.set_defaults(func=cmd_wiki_list)
+
+    p_wcats = wiki_sub.add_parser("categories", help="List wiki categories.")
+    p_wcats.set_defaults(func=cmd_wiki_categories)
+
+    p_wsearch = wiki_sub.add_parser("search", help="Search wiki pages.")
+    p_wsearch.add_argument("query", help="Search query.")
+    p_wsearch.add_argument("--top", "-n", type=int, default=10, help="Number of results.")
+    p_wsearch.add_argument("--semantic", "-s", action="store_true", help="Use semantic search (requires embeddings server).")
+    p_wsearch.set_defaults(func=cmd_wiki_search)
+
+    p_wlink = wiki_sub.add_parser("link", help="Create a cross-reference between pages.")
+    p_wlink.add_argument("from_slug", help="Source page slug.")
+    p_wlink.add_argument("to_slug", help="Target page slug.")
+    p_wlink.set_defaults(func=cmd_wiki_link)
+
+    p_wfromj = wiki_sub.add_parser("from-journal", help="Promote a journal entry to a wiki page.")
+    p_wfromj.add_argument("journal_id", type=int, help="Journal entry ID.")
+    p_wfromj.add_argument("--title", "-T", default="", help="Override title.")
+    p_wfromj.add_argument("--category", "-c", default="", help="Page category.")
+    p_wfromj.set_defaults(func=cmd_wiki_from_journal)
+
+    # -- task ------------------------------------------------------------------
+
+    p_task = sub.add_parser("task", help="Task management (kanban / todo tracker).")
+    task_sub = p_task.add_subparsers(dest="task_command", metavar="<subcommand>")
+    task_sub.required = True
+
+    p_tadd = task_sub.add_parser("add", help="Create a new task.")
+    p_tadd.add_argument("title", help="Task title.")
+    p_tadd.add_argument("-d", "--desc", default="", help="Task description.")
+    p_tadd.add_argument("-p", "--project", default="", help="Project name.")
+    p_tadd.add_argument("--priority", default="medium", choices=["low", "medium", "high", "critical"], help="Priority level.")
+    p_tadd.add_argument("--type", default="task", choices=["task", "bug", "feature", "idea"], help="Task type.")
+    p_tadd.add_argument("--board", default="default", help="Board name (e.g. backlog, sprint-1).")
+    p_tadd.add_argument("--assign", default="", help="Assign to agent.")
+    p_tadd.add_argument("-t", "--tags", default="", help="Comma-separated tags.")
+    p_tadd.add_argument("--due", default="", help="Due date (YYYY-MM-DD).")
+    p_tadd.add_argument("--parent", type=int, default=None, help="Parent task ID (subtask).")
+    p_tadd.set_defaults(func=cmd_task_add)
+
+    p_tshow = task_sub.add_parser("show", help="Show task details.")
+    p_tshow.add_argument("id", type=int, help="Task ID.")
+    p_tshow.set_defaults(func=cmd_task_show)
+
+    p_tedit = task_sub.add_parser("edit", help="Update task fields.")
+    p_tedit.add_argument("id", type=int, help="Task ID.")
+    p_tedit.add_argument("--title", default=None, help="New title.")
+    p_tedit.add_argument("--desc", default=None, help="New description.")
+    p_tedit.add_argument("--priority", default=None, choices=["low", "medium", "high", "critical"], help="New priority.")
+    p_tedit.add_argument("--type", default=None, choices=["task", "bug", "feature", "idea"], help="New type.")
+    p_tedit.add_argument("-t", "--tags", default=None, help="New tags.")
+    p_tedit.add_argument("--board", default=None, help="New board.")
+    p_tedit.add_argument("--due", default=None, help="New due date (YYYY-MM-DD).")
+    p_tedit.set_defaults(func=cmd_task_edit)
+
+    p_tmove = task_sub.add_parser("move", help="Change task status.")
+    p_tmove.add_argument("id", type=int, help="Task ID.")
+    p_tmove.add_argument("status", choices=["todo", "in_progress", "done", "blocked"], help="New status.")
+    p_tmove.set_defaults(func=cmd_task_move)
+
+    p_tassign = task_sub.add_parser("assign", help="Assign task to an agent.")
+    p_tassign.add_argument("id", type=int, help="Task ID.")
+    p_tassign.add_argument("agent", help="Agent name.")
+    p_tassign.set_defaults(func=cmd_task_assign)
+
+    p_tdelete = task_sub.add_parser("delete", help="Delete a task.")
+    p_tdelete.add_argument("id", type=int, help="Task ID.")
+    p_tdelete.set_defaults(func=cmd_task_delete)
+
+    p_tlist = task_sub.add_parser("list", help="List/filter tasks.")
+    p_tlist.add_argument("--status", default="", help="Filter by status.")
+    p_tlist.add_argument("-p", "--project", default="", help="Filter by project.")
+    p_tlist.add_argument("--board", default="", help="Filter by board.")
+    p_tlist.add_argument("--type", default="", help="Filter by type.")
+    p_tlist.add_argument("--assigned", default="", help="Filter by assignee.")
+    p_tlist.set_defaults(func=cmd_task_list)
+
+    p_tsearch = task_sub.add_parser("search", help="Search tasks.")
+    p_tsearch.add_argument("query", help="Search query.")
+    p_tsearch.add_argument("--top", "-n", type=int, default=10, help="Number of results.")
+    p_tsearch.add_argument("-p", "--project", default="", help="Filter by project.")
+    p_tsearch.add_argument("--semantic", "-s", action="store_true", help="Use semantic search.")
+    p_tsearch.set_defaults(func=cmd_task_search)
+
+    p_tlink = task_sub.add_parser("link", help="Link task to a wiki page.")
+    p_tlink.add_argument("id", type=int, help="Task ID.")
+    p_tlink.add_argument("wiki_slug", help="Wiki page slug.")
+    p_tlink.set_defaults(func=cmd_task_link)
+
+    p_tfromj = task_sub.add_parser("from-journal", help="Promote journal entry to task.")
+    p_tfromj.add_argument("journal_id", type=int, help="Journal entry ID.")
+    p_tfromj.add_argument("--priority", default="medium", help="Task priority.")
+    p_tfromj.add_argument("-p", "--project", default="", help="Project name.")
+    p_tfromj.set_defaults(func=cmd_task_from_journal)
+
+    p_tstats = task_sub.add_parser("stats", help="Show task statistics.")
+    p_tstats.add_argument("-p", "--project", default="", help="Filter by project.")
+    p_tstats.set_defaults(func=cmd_task_stats)
+
+    # -- board -----------------------------------------------------------------
+
+    p_board = sub.add_parser("board", help="Kanban board view.")
+    p_board.add_argument("project", nargs="?", default="", help="Project name.")
+    p_board.add_argument("--board", default="", help="Board name filter.")
+    p_board.set_defaults(func=cmd_board)
+
+    p_board_list = sub.add_parser("board-list", help="List all boards.")
+    p_board_list.add_argument("-p", "--project", default="", help="Filter by project.")
+    p_board_list.set_defaults(func=cmd_board_list)
+
+    # -- serve (embeddings server) ---------------------------------------------
+
+    p_serve = sub.add_parser("serve", help="Start the embeddings server.")
+    p_serve.add_argument("--port", type=int, default=7437, help="Server port (default: 7437).")
+    p_serve.set_defaults(func=cmd_serve)
+
+    p_serve_status = sub.add_parser("serve-status", help="Check embeddings server status.")
+    p_serve_status.set_defaults(func=cmd_serve_status)
+
+    p_reindex = sub.add_parser("reindex", help="Rebuild all embeddings from journal + wiki.")
+    p_reindex.set_defaults(func=cmd_reindex)
+
+    # -- context ---------------------------------------------------------------
+
+    p_context = sub.add_parser("context", help="Context management.")
+    context_sub = p_context.add_subparsers(dest="context_command", metavar="<subcommand>")
+    context_sub.required = True
+
+    p_ctx_refresh = context_sub.add_parser("refresh", help="Rebuild session_context.json.")
+    p_ctx_refresh.add_argument("--project", "-p", default="", help="Project name for context.")
+    p_ctx_refresh.set_defaults(func=cmd_context_refresh)
 
     args = parser.parse_args()
 

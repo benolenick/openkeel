@@ -1,22 +1,22 @@
 """Interactive launcher — the main way to start an OpenKeel-governed agent session.
 
 Usage:
-    openkeel                     # interactive: pick agent + project
+    openkeel                     # interactive: pick agent + profile
     openkeel launch              # same
-    openkeel launch claude       # explicit agent, infer project from cwd
-    openkeel launch claude myproj # explicit agent + project
+    openkeel launch claude       # explicit agent, pick profile interactively
 
 Flow:
     1. Detect installed agents (claude, gemini, codex)
-    2. Detect project from cwd (git repo name or dir name)
-    3. Load recent facts from memory.db
+    2. Pick a profile (sorted by most recently used, shows fact counts)
+    3. Load recent facts from memory.db (scoped to profile name)
     4. Inject context block into CLAUDE.md (managed section)
-    5. Launch agent subprocess
+    5. Launch agent in the profile's work_dir
     6. On exit: update memory, clean up context block
     7. On crash: leave context block (agent restart picks it up)
 """
 from __future__ import annotations
 
+import json as _json
 import os
 import re
 import shutil
@@ -24,6 +24,15 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+# Platform-specific imports for raw key reading
+_WINDOWS = sys.platform == "win32"
+if _WINDOWS:
+    import ctypes
+    import msvcrt
+else:
+    import tty
+    import termios
 
 # Marker for the managed section in CLAUDE.md
 _CONTEXT_START = "<!-- OPENKEEL:START -->"
@@ -54,32 +63,28 @@ def detect_agents() -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# Project detection
+# Usage tracking — sort profiles by most recently used
 # ---------------------------------------------------------------------------
 
-def detect_project(cwd: str | None = None) -> tuple[str, str]:
-    """Detect project name and root dir from cwd.
+_USAGE_FILE = Path.home() / ".openkeel" / "profile_usage.json"
 
-    Returns (project_name, project_dir).
-    Tries git repo name first, falls back to directory name.
-    """
-    cwd = cwd or os.getcwd()
 
-    # Try git repo name
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, cwd=cwd, timeout=5,
-        )
-        if result.returncode == 0:
-            repo_dir = result.stdout.strip()
-            name = Path(repo_dir).name
-            return name, repo_dir
-    except Exception:
-        pass
+def _load_usage() -> dict[str, str]:
+    """Return {profile_name: ISO timestamp} from the usage file."""
+    if _USAGE_FILE.exists():
+        try:
+            return _json.loads(_USAGE_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
 
-    # Fall back to directory name
-    return Path(cwd).name, cwd
+
+def _record_usage(profile_name: str) -> None:
+    """Record that a profile was just used (now)."""
+    usage = _load_usage()
+    usage[profile_name] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    _USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _USAGE_FILE.write_text(_json.dumps(usage, indent=2), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -165,12 +170,116 @@ def remove_context(project_dir: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Raw key input (cross-platform)
+# ---------------------------------------------------------------------------
+
+def _supports_raw_input() -> bool:
+    """Check if the terminal supports raw keypress reading."""
+    if _WINDOWS:
+        try:
+            handle = ctypes.windll.kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+            mode = ctypes.c_ulong()
+            ok = ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode))
+            return bool(ok)
+        except Exception:
+            return False
+    else:
+        try:
+            termios.tcgetattr(sys.stdin.fileno())
+            return sys.stdin.isatty()
+        except Exception:
+            return False
+
+
+def _read_key() -> str:
+    """Read a single keypress. Returns 'up', 'down', 'enter', or the char."""
+    if _WINDOWS:
+        ch = msvcrt.getwch()
+        if ch in ("\r", "\n"):
+            return "enter"
+        if ch == "\xe0":  # arrow key prefix
+            ch2 = msvcrt.getwch()
+            if ch2 == "H":
+                return "up"
+            if ch2 == "P":
+                return "down"
+            return ""
+        return ch
+    else:
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+            if ch in ("\r", "\n"):
+                return "enter"
+            if ch == "\x1b":
+                ch2 = sys.stdin.read(1)
+                if ch2 == "[":
+                    ch3 = sys.stdin.read(1)
+                    if ch3 == "A":
+                        return "up"
+                    if ch3 == "B":
+                        return "down"
+                return ""
+            return ch
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+# ---------------------------------------------------------------------------
 # Interactive prompt
 # ---------------------------------------------------------------------------
 
-def _pick_option(prompt: str, options: list[str], default: int = 0) -> int:
-    """Simple terminal picker. Returns index of chosen option."""
-    print(prompt)
+def _pick_interactive(prompt: str, options: list[str], default: int = 0) -> int:
+    """Interactive picker with arrow keys or numbered fallback.
+
+    Returns index of chosen option.
+    """
+    if _supports_raw_input():
+        return _pick_arrow(prompt, options, default)
+    return _pick_numbered(prompt, options, default)
+
+
+def _pick_arrow(prompt: str, options: list[str], default: int = 0) -> int:
+    """Arrow-key picker with in-place redraw."""
+    sel = default
+    n = len(options)
+    # hint line adds 1 extra line
+    total_lines = n + 1
+
+    def render(first: bool = False):
+        # Move cursor up to overwrite previous render (skip on first draw)
+        if not first:
+            sys.stdout.write(f"\033[{total_lines}A")
+        for i, opt in enumerate(options):
+            marker = ">" if i == sel else " "
+            # Clear line before writing
+            sys.stdout.write(f"\033[2K  {marker} {opt}\n")
+        sys.stdout.write("\033[2K  \033[90m↑↓ navigate · enter select\033[0m\n")
+        sys.stdout.flush()
+
+    print(f"  {prompt}")
+    render(first=True)
+
+    while True:
+        key = _read_key()
+        if key == "up":
+            sel = (sel - 1) % n
+            render()
+        elif key == "down":
+            sel = (sel + 1) % n
+            render()
+        elif key == "enter":
+            # Overwrite hint line with blank
+            sys.stdout.write(f"\033[1A\033[2K")
+            sys.stdout.flush()
+            return sel
+
+
+def _pick_numbered(prompt: str, options: list[str], default: int = 0) -> int:
+    """Numbered fallback picker (works in any terminal)."""
+    print(f"  {prompt}")
     for i, opt in enumerate(options):
         marker = ">" if i == default else " "
         print(f"  {marker} [{i + 1}] {opt}")
@@ -178,7 +287,7 @@ def _pick_option(prompt: str, options: list[str], default: int = 0) -> int:
 
     while True:
         try:
-            raw = input(f"Choice [{default + 1}]: ").strip()
+            raw = input(f"  Choice [{default + 1}]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             sys.exit(0)
@@ -195,12 +304,133 @@ def _pick_option(prompt: str, options: list[str], default: int = 0) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Profile picker (sorted by most recently used)
+# ---------------------------------------------------------------------------
+
+def _pick_profile(
+    available: list[str],
+    known_facts: dict[str, int],
+) -> str:
+    """Interactive profile picker sorted by most recently used.
+
+    Args:
+        available: profile names from list_profiles().
+        known_facts: {profile_name: fact_count} from memory.db stats.
+
+    Returns the chosen profile name.
+    """
+    usage = _load_usage()
+
+    # Sort: recently used first, then alphabetical for never-used
+    def sort_key(name: str) -> tuple[int, str]:
+        ts = usage.get(name, "")
+        # used profiles sort before unused; within used, reverse chrono
+        return (0 if ts else 1, "" if not ts else chr(0) + ts[::-1], name)
+
+    ordered = sorted(available, key=lambda n: (0 if usage.get(n) else 1, usage.get(n, ""), n))
+    # Reverse the "used" portion so most recent is first
+    used = [n for n in ordered if usage.get(n)]
+    unused = [n for n in ordered if not usage.get(n)]
+    used.sort(key=lambda n: usage[n], reverse=True)
+    ordered = used + unused
+
+    options = []
+    profile_keys: list[str | None] = []
+
+    for name in ordered:
+        count = known_facts.get(name, 0)
+        extends_info = ""
+        try:
+            from openkeel.core.profile import _resolve_path, _load_raw_yaml
+            raw = _load_raw_yaml(_resolve_path(name))
+            if raw.get("extends"):
+                extends_info = raw["extends"]
+        except Exception:
+            pass
+
+        suffix_parts = []
+        if count:
+            suffix_parts.append(f"{count} facts")
+        if extends_info:
+            suffix_parts.append(extends_info)
+
+        suffix = f" \u2014 {', '.join(suffix_parts)}" if suffix_parts else ""
+        options.append(f"{name}{suffix}")
+        profile_keys.append(name)
+
+    # New profile option at bottom
+    options.append("+ New profile\u2026")
+    profile_keys.append(None)
+
+    if len(options) == 1:
+        return _prompt_new_profile()
+
+    idx = _pick_interactive("Profile:", options, default=0)
+
+    if profile_keys[idx] is None:
+        return _prompt_new_profile()
+    return profile_keys[idx]
+
+
+def _prompt_new_profile() -> str:
+    """Prompt user to create a minimal new profile YAML."""
+    from openkeel.core.profile import list_profiles
+
+    while True:
+        try:
+            name = input("  Profile name: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+        if not name:
+            print("  Name cannot be empty.")
+            continue
+
+        # Ask for optional base profile
+        bases = list_profiles()
+        try:
+            if bases:
+                print(f"  Available bases: {', '.join(bases)}")
+            extends = input("  Extends (base profile, or blank): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+
+        # Ask for working directory
+        try:
+            work_dir = input("  Work directory (or blank for current dir): ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            sys.exit(0)
+
+        # Write minimal YAML
+        profile_dir = Path.home() / ".openkeel" / "profiles"
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        profile_path = profile_dir / f"{name}.yaml"
+
+        lines = [f"name: {name}"]
+        if extends:
+            lines.append(f"extends: {extends}")
+        if work_dir:
+            lines.append(f"work_dir: \"{work_dir}\"")
+        lines.append(f'description: ""')
+        lines.append("")
+        profile_path.write_text("\n".join(lines), encoding="utf-8")
+        print(f"  Created {profile_path}")
+        return name
+
+
+# ---------------------------------------------------------------------------
 # Main launcher
 # ---------------------------------------------------------------------------
 
-def launch(agent_name: str = "", project: str = "") -> None:
-    """Interactive launcher entry point."""
+def launch(agent_name: str = "") -> None:
+    """Interactive launcher entry point.
+
+    Run from anywhere — the profile's work_dir determines where the agent runs.
+    """
     from openkeel.integrations.local_memory import LocalMemory
+    from openkeel.core.profile import list_profiles, load_profile
 
     # 1. Detect agents
     agents = detect_agents()
@@ -208,7 +438,7 @@ def launch(agent_name: str = "", project: str = "") -> None:
         print("No agents found. Install claude, gemini, or codex.")
         sys.exit(1)
 
-    # 2. Pick agent
+    # 2. Pick agent (skip picker if only one)
     agent_names = list(agents.keys())
     if agent_name and agent_name in agents:
         chosen_agent = agent_name
@@ -218,28 +448,30 @@ def launch(agent_name: str = "", project: str = "") -> None:
     elif len(agent_names) == 1:
         chosen_agent = agent_names[0]
     else:
-        idx = _pick_option("Agent:", agent_names)
+        idx = _pick_interactive("Agent:", agent_names)
         chosen_agent = agent_names[idx]
 
     agent_path = agents[chosen_agent]
 
-    # 3. Detect / pick project
-    detected_name, detected_dir = detect_project()
-
+    # 3. Pick profile (sorted by most recently used)
     mem = LocalMemory()
     stats = mem.stats()
-    existing_projects = list(stats.get("projects", {}).keys())
+    known_facts = stats.get("projects", {})
 
-    if project:
-        project_name = project
-        project_dir = detected_dir
-    elif detected_name and detected_name != os.path.basename(os.path.expanduser("~")):
-        # Use detected project, but let user confirm/override
-        project_name = detected_name
-        project_dir = detected_dir
-    else:
-        project_name = detected_name or "default"
-        project_dir = detected_dir
+    available = list_profiles()
+
+    print()
+    profile_name = _pick_profile(available, dict(known_facts))
+
+    # Load full profile to get work_dir
+    profile = load_profile(profile_name)
+    project_dir = profile.work_dir or os.getcwd()
+
+    # Record usage so this profile sorts to top next time
+    _record_usage(profile_name)
+
+    # Memory scoped to profile name
+    project_name = profile_name
 
     # 4. Load context from memory
     recent_facts = mem.recent(limit=10, project=project_name)
@@ -248,9 +480,9 @@ def launch(agent_name: str = "", project: str = "") -> None:
     # 5. Show summary
     print()
     print(f"  Agent:    {chosen_agent} ({agent_path})")
-    print(f"  Project:  {project_name}")
+    print(f"  Profile:  {profile_name}")
     print(f"  Dir:      {project_dir}")
-    print(f"  Memory:   {stats['total_facts']} facts ({len(recent_facts)} for this project)")
+    print(f"  Memory:   {stats['total_facts']} facts ({len(recent_facts)} for this profile)")
     print()
 
     # 6. Inject context into CLAUDE.md
@@ -259,7 +491,7 @@ def launch(agent_name: str = "", project: str = "") -> None:
     print(f"  Context injected into {claude_md}")
     print()
 
-    # 7. Launch agent
+    # 7. Launch agent in the profile's work_dir
     exit_code = 0
     clean_exit = False
     try:
@@ -279,11 +511,9 @@ def launch(agent_name: str = "", project: str = "") -> None:
 
     # 8. Post-session
     if clean_exit:
-        # Clean exit — remove context block
         remove_context(project_dir)
         print(f"[openkeel] Context cleaned from CLAUDE.md")
     else:
-        # Crash — leave context block so restart picks it up
         print(f"[openkeel] Agent exited with code {exit_code}.")
         print(f"[openkeel] Context left in CLAUDE.md for restart.")
 
@@ -291,13 +521,11 @@ def launch(agent_name: str = "", project: str = "") -> None:
         try:
             raw = input("\n  Relaunch? [Y/n]: ").strip().lower()
             if raw in ("", "y", "yes"):
-                # Refresh context before relaunch
                 recent_facts = mem.recent(limit=10, project=project_name)
                 inject_context(project_dir, project_name, recent_facts)
                 print(f"  Context refreshed. Relaunching {chosen_agent}...\n")
                 mem.close()
-                # Recursive relaunch
-                launch(chosen_agent, project_name)
+                launch(chosen_agent)
                 return
         except (EOFError, KeyboardInterrupt):
             pass
