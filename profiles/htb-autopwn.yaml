@@ -1,0 +1,358 @@
+# OpenKeel v0.2 — HTB Autopwn Profile
+# Aggressive HackTheBox penetration testing with mandatory Memoria integration.
+# Scope-locked to HTB IP ranges only. Default action is DENY — every command must
+# match a safe or gated pattern. Memoria queries are mandatory before exploitation
+# and post-exploitation activities.
+
+name: htb-autopwn
+description: >
+  HTB Autopwn profile. Aggressive pentesting posture scope-locked to HTB IP
+  ranges (10.10.10.0/24, 10.10.11.0/24, 10.129.0.0/16). Allows all standard
+  offensive tools. Blocks exfiltration to external services, host disk operations,
+  and killing security services. Gates reverse shells, metasploit handlers, and
+  SSH outside scope. Memoria hooks are mandatory for exploitation and
+  post-exploitation phases.
+version: "0.2"
+
+# ---------------------------------------------------------------------------
+# Command classification tiers
+# ---------------------------------------------------------------------------
+
+blocked:
+  patterns:
+    # Exfiltration to external services (non-HTB, non-localhost)
+    - '(?i)\b(curl|wget)\s+[^|&;]*(pastebin\.com|transfer\.sh|file\.io|ghostbin|hastebin|dpaste|ix\.io|0x0\.st)'
+    - '(?i)\b(curl|wget)\s+[^|&;]*ngrok\.io'
+    # Host disk operations (never format/partition the attack box)
+    - '(?i)\b(mkfs|mke2fs|mkswap)\b'
+    - '(?i)\bfdisk\b'
+    - '(?i)\bparted\b.*--(script|mkpart|rm)\b'
+    - '(?i)\bdd\s+.*of=/dev/(sd|nvme|vd|hd)[a-z]'
+    # Recursive deletion on the host
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+/'
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+~'
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+\$HOME'
+    # Killing host security services
+    - '(?i)\b(systemctl|service)\s+(stop|disable|mask)\s+(ufw|iptables|firewalld|auditd|fail2ban|apparmor|selinux|clamav)\b'
+    # System power control on the host
+    - '(?i)\b(shutdown|poweroff|halt|reboot|init\s+[06])\b'
+    # Git force-push (protect attack notes)
+    - 'git\s+push\s+[^|&;]*--force'
+    - 'git\s+push\s+[^|&;]*-f\s'
+  message: "BLOCKED by htb-autopwn profile: exfiltration, host disk ops, or security service kill denied."
+
+gated:
+  patterns:
+    # Reverse shell listeners (netcat, socat)
+    - '(?i)\bnc\s+(-[a-zA-Z]*l[a-zA-Z]*|-[a-zA-Z]*e[a-zA-Z]*)\b'
+    - '(?i)bash\s+-i\s+>&?\s*/dev/tcp/'
+    - '(?i)\bsocat\s+.*EXEC:'
+    - '(?i)\brlwrap\s+nc\b'
+    # Metasploit handler setup
+    - '(?i)msfconsole\s+.*handler\b'
+    - '(?i)msfvenom\s+.*-f\s+(exe|elf|macho|raw|dll|asp|aspx|jsp|war|py|ps1)\b'
+    # SSH outside HTB scope
+    - '\bssh\s+(?!.*10\.10\.(10|11)\.)(?!.*10\.129\.)(?!.*127\.0\.0\.1)(?!.*localhost)\S'
+    # SCP/rsync outside scope
+    - '\b(scp|rsync)\s+[^|&;]+@(?!10\.10\.(10|11)\.)(?!10\.129\.)'
+    # Python http.server (payload serving)
+    - '(?i)python[23]?\s+.*-m\s+http\.server\b'
+    # Uploading tools to target
+    - '(?i)\b(curl|wget)\s+[^|&;]*-X\s+(POST|PUT)\b.*(?!10\.10\.)(?!10\.129\.)(?!127\.0\.0\.)'
+    # Privilege escalation tools (log for audit trail)
+    - '(?i)\b(linpeas|winpeas|linenum|pspy|unix-privesc-check|suggester)\b'
+  message: "GATED by htb-autopwn profile: reverse shell, handler, or out-of-scope connection requires approval."
+
+safe:
+  patterns:
+    # Network reconnaissance
+    - '^\s*nmap\s'
+    - '^\s*masscan\s'
+    - '^\s*rustscan\s'
+    - '^\s*(ping|ping6)\s'
+    - '^\s*(traceroute|tracepath|mtr)\s'
+    - '^\s*(dig|nslookup|host|whois)\s'
+    - '^\s*arping\s'
+    # Web enumeration and fuzzing
+    - '^\s*(gobuster|ffuf|feroxbuster|wfuzz|dirb|dirbuster)\s'
+    - '^\s*(nikto|whatweb|wafw00f|wpscan|droopescan)\s'
+    - '^\s*(nuclei)\s'
+    # curl/wget to HTB target ranges and localhost
+    - '^\s*(curl|wget)\s+[^|&;]*https?://10\.10\.(10|11)\.'
+    - '^\s*(curl|wget)\s+[^|&;]*https?://10\.129\.'
+    - '^\s*(curl|wget)\s+[^|&;]*https?://(127\.0\.0\.1|localhost)'
+    # SQL injection tooling
+    - '^\s*sqlmap\s'
+    - '^\s*(xsstrike|dalfox|commix)\s'
+    # Password attacks
+    - '^\s*(hydra|medusa|ncrack)\s'
+    - '^\s*(john|john-the-ripper)\s'
+    - '^\s*hashcat\s'
+    - '^\s*(crunch|cewl|cupp)\s'
+    # SMB / AD enumeration
+    - '^\s*(smbclient|smbmap|rpcclient|enum4linux|enum4linux-ng)\s'
+    - '^\s*(crackmapexec|cme|netexec|nxc)\s'
+    - '^\s*(ldapsearch|ldapenum)\s'
+    - '^\s*(impacket-|python[23]?\s+.*impacket)\S*'
+    - '^\s*bloodhound\b'
+    - '^\s*(kerbrute|GetNPUsers|GetUserSPNs|GetTGT|secretsdump)\b'
+    # SNMP / network service enumeration
+    - '^\s*(snmpwalk|snmpget|onesixtyone)\s'
+    - '^\s*(finger|rpcinfo|showmount)\s'
+    # Exploitation frameworks (module runs)
+    - '^\s*msfconsole\s'
+    - '^\s*(msfdb|msfupdate)\b'
+    # Tunneling and pivoting
+    - '^\s*(chisel|ligolo|sshuttle)\s'
+    - '^\s*ssh\s+[^|&;]*-L\s'
+    - '^\s*ssh\s+[^|&;]*-R\s'
+    - '^\s*ssh\s+[^|&;]*-D\s'
+    - '^\s*ssh\s+[^|&;]*10\.10\.(10|11)\.'
+    - '^\s*ssh\s+[^|&;]*10\.129\.'
+    # Python exploit scripts
+    - '^\s*(python|python3)\s+\S+\.py\b'
+    - '^\s*(python|python3)\s+-c\s'
+    # Evil-WinRM, WinRM tools
+    - '^\s*(evil-winrm|winrm)\s'
+    # File and binary analysis
+    - '^\s*(cat|less|head|tail|grep|rg|strings|file|xxd|hexdump|od)\s'
+    - '^\s*(ls|ll|la|dir|pwd|cd|find|fd)\b'
+    - '^\s*(wc|sort|uniq|cut|awk|sed|diff|jq)\s'
+    # Credential and hash utilities
+    - '^\s*(hash-identifier|hashid|haiti)\s'
+    - '^\s*(openssl|gpg|base64)\s'
+    # Steganography and forensics
+    - '^\s*(steghide|stegsolve|binwalk|foremost|exiftool)\s'
+    # Reverse engineering
+    - '^\s*(ghidra|radare2|r2|objdump|nm|readelf|ltrace|strace)\b'
+    - '^\s*(pwndbg|peda|gdb|gef)\b'
+    # ROPgadget, pwntools
+    - '^\s*(ROPgadget|ropper)\s'
+    # Environment and process info
+    - '^\s*(id|whoami|hostname|uname|env|ps|top|free|df|ip\s+a|ifconfig)\b'
+    # VPN management
+    - '^\s*openvpn\s+[^|&;]*\.ovpn\b'
+    # Git (attack notes)
+    - '^\s*git\s+(status|diff|log|show|add|commit|branch|checkout|pull|push)\b'
+    # Editors
+    - '^\s*(vim|nvim|nano|code|cursor)\s'
+    # File manipulation (for loot/notes)
+    - '^\s*(touch|mkdir|cp|mv)\s'
+    # Memoria queries
+    - '^\s*curl\s+[^|&;]*(127\.0\.0\.1|localhost):8000'
+  message: ""
+
+default_action: deny
+
+# ---------------------------------------------------------------------------
+# Scope constraints (HTB ranges ONLY)
+# ---------------------------------------------------------------------------
+
+scope:
+  allowed_ips:
+    - "10.10.10.0/24"
+    - "10.10.11.0/24"
+    - "10.129.0.0/16"
+    - "10.10.0.0/16"       # HTB VPN range
+    - "127.0.0.1"          # localhost (Memoria, Ollama)
+  allowed_hostnames:
+    - "*.htb"
+    - "*.hackthebox.eu"
+    - "localhost"
+  allowed_paths:
+    - "/home/*/htb-autopwn/**"
+    - "/home/*/htb/**"
+    - "/home/*/pentest/**"
+    - "/tmp/**"
+    - "/opt/tools/**"
+    - "/opt/wordlists/**"
+    - "/usr/share/wordlists/**"
+  denied_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/etc/sudoers"
+    - "/root/.ssh/**"
+
+# ---------------------------------------------------------------------------
+# Activities (timeboxing)
+# ---------------------------------------------------------------------------
+
+activities:
+  - name: recon
+    patterns:
+      - '^\s*(nmap|masscan|rustscan)\s'
+      - '^\s*(ping|traceroute|dig|whois|arping)\s'
+    timebox_minutes: 30
+    grace_minutes: 5
+
+  - name: enumeration
+    patterns:
+      - '^\s*(gobuster|ffuf|feroxbuster|wfuzz|dirb|nuclei)\s'
+      - '^\s*(nikto|whatweb|wpscan|enum4linux|smbmap|smbclient)\s'
+      - '^\s*(ldapsearch|crackmapexec|netexec|nxc|rpcclient)\s'
+      - '^\s*(snmpwalk|onesixtyone|showmount|rpcinfo)\s'
+    timebox_minutes: 45
+    grace_minutes: 5
+
+  - name: exploitation
+    patterns:
+      - '^\s*(sqlmap|hydra|medusa|john|hashcat)\s'
+      - '^\s*msfconsole\s'
+      - '^\s*(python|python3)\s+\S+\.py\b'
+      - '^\s*(impacket-|crackmapexec)\S*'
+      - '^\s*(evil-winrm)\s'
+    timebox_minutes: 60
+    grace_minutes: 10
+
+  - name: post-exploitation
+    patterns:
+      - '^\s*(linpeas|winpeas|linenum|pspy)\b'
+      - '^\s*(bloodhound|kerbrute|GetNPUsers|GetUserSPNs|secretsdump)\b'
+      - '^\s*(chisel|ligolo|sshuttle)\s'
+    timebox_minutes: 45
+    grace_minutes: 5
+
+# ---------------------------------------------------------------------------
+# Phases
+# ---------------------------------------------------------------------------
+
+phases:
+  - name: recon
+    description: "Host discovery, port scanning, OS fingerprinting."
+    timeout_minutes: 30
+    auto_advance: false
+    gates:
+      - type: command_output
+        target: "ip route"
+        expect: "10\\.10\\."
+        message: "VPN tunnel to HTB network must be active before starting recon."
+
+  - name: enumeration
+    description: "Service enumeration, directory brute-force, credential spraying."
+    timeout_minutes: 45
+    auto_advance: false
+    gates: []
+
+  - name: exploitation
+    description: "Active exploitation — Memoria query is mandatory before this phase."
+    timeout_minutes: 60
+    auto_advance: false
+    gates:
+      - type: memory_search
+        target: "http://127.0.0.1:8000"
+        expect: "exploit technique attack vulnerability"
+        message: "MANDATORY: Query Memoria for known attack paths before exploitation."
+
+  - name: post-exploitation
+    description: "Privilege escalation and lateral movement — Memoria mandatory."
+    timeout_minutes: 45
+    auto_advance: false
+    gates:
+      - type: memory_search
+        target: "http://127.0.0.1:8000"
+        expect: "privilege escalation lateral movement persistence"
+        message: "MANDATORY: Query Memoria for privesc and lateral movement techniques."
+
+  - name: reporting
+    description: "Evidence consolidation and loot organization."
+    timeout_minutes: 20
+    auto_advance: false
+    gates: []
+
+# ---------------------------------------------------------------------------
+# Re-injection (frequent — maintain scope awareness during aggressive ops)
+# ---------------------------------------------------------------------------
+
+reinjection:
+  capsule_every: 10
+  full_every: 60
+  rules_path: ""
+  capsule_lines: 25
+
+# ---------------------------------------------------------------------------
+# Sandbox
+# ---------------------------------------------------------------------------
+
+sandbox:
+  enabled: true
+  memory_max: "4G"
+  cpu_quota: "200%"
+  network_deny:
+    - "0.0.0.0/0"    # default deny; HTB IPs exempted via allowed_ips
+  readonly_paths:
+    - "/etc"
+    - "/boot"
+  inaccessible_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/root"
+
+# ---------------------------------------------------------------------------
+# Learning (Memoria integration — mandatory for HTB autopwn)
+# ---------------------------------------------------------------------------
+
+learning:
+  enabled: true
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 120
+  extract_on:
+    - timebox_blocks
+    - successful_phases
+    - drift_events
+    - blocked_commands
+    - tool_gaps
+  auto_seed: true
+  search_top_k: 5
+
+# ---------------------------------------------------------------------------
+# Memoria Hooks (mandatory for exploitation and post-exploitation)
+# ---------------------------------------------------------------------------
+
+memoria_hooks:
+  enabled: true
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 120
+  top_k: 5
+  mandatory_activities:
+    - exploitation
+    - post-exploitation
+  advisory_activities:
+    - enumeration
+    - recon
+  tool_queries:
+    nmap: "port scanning service detection OS fingerprinting"
+    sqlmap: "SQL injection exploitation techniques"
+    gobuster: "directory enumeration web fuzzing"
+    ffuf: "web fuzzing content discovery"
+    feroxbuster: "recursive directory brute-force"
+    nikto: "web server vulnerability scanning"
+    nuclei: "vulnerability scanning templates"
+    hydra: "password brute-force credential attacks"
+    john: "password hash cracking techniques"
+    hashcat: "GPU hash cracking modes rules"
+    evil-winrm: "WinRM lateral movement Windows"
+    crackmapexec: "SMB Active Directory lateral movement"
+    netexec: "SMB Active Directory lateral movement"
+    bloodhound: "Active Directory attack path enumeration"
+    kerbrute: "Kerberos user enumeration AS-REP roasting"
+    impacket: "Windows exploitation Impacket tools"
+    msfconsole: "Metasploit exploitation modules"
+    smbclient: "SMB enumeration share access"
+    ldapsearch: "LDAP Active Directory enumeration"
+    linpeas: "Linux privilege escalation enumeration"
+    winpeas: "Windows privilege escalation enumeration"
+    chisel: "tunneling pivoting port forwarding"
+    ligolo: "tunneling pivoting reverse proxy"
+    sshuttle: "SSH tunneling VPN over SSH"
+    wpscan: "WordPress vulnerability scanning"
+    secretsdump: "credential dumping NTLM hashes SAM"
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+tags:
+  - htb
+  - pentest
+  - autopwn
+  - security

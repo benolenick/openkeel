@@ -1,0 +1,239 @@
+# OpenKeel v0.2 — Multi-Agent Orchestration Profile
+# For the Tower orchestrator and multi-agent workflows. Allows spawning agent
+# processes, reading agent logs, NATS messaging, localhost HTTP API calls,
+# Python/Node execution, and Docker operations. Blocks killing other agents'
+# processes, modifying agent configs without approval, and rm -rf. Gates spawning
+# new agents, budget-exceeding operations, and cross-agent communication.
+
+name: multi-agent
+description: >
+  Multi-agent orchestration profile for the Tower daemon. Permits spawning
+  agent processes (claude, codex, gemini), reading agent logs, NATS messaging,
+  HTTP API calls to localhost services, Python/Node execution, and Docker
+  operations. Blocks killing other agents' processes, modifying agent configs
+  without approval, and destructive operations. Gates spawning new agents,
+  budget-exceeding operations, and cross-agent communication.
+version: "0.2"
+
+# ---------------------------------------------------------------------------
+# Command classification tiers
+# ---------------------------------------------------------------------------
+
+blocked:
+  patterns:
+    # Killing other agents' processes (never kill without Tower coordination)
+    - '(?i)\bkill\s+(-9\s+|-SIGKILL\s+)?\d+'
+    - '(?i)\bkillall\s+(claude|codex|gemini|node|python)'
+    - '(?i)\bpkill\s+(claude|codex|gemini|node|python)'
+    - '(?i)\btaskkill\s+/F\s+/IM\s+(claude|codex|gemini)'
+    # Modifying agent configs without approval
+    - '(?i)(>|>>|tee|sed\s+-i)\s+[^|&;]*\.(claude|codex|gemini)/(settings|config|preferences)\.'
+    - '(?i)(>|>>|tee|sed\s+-i)\s+[^|&;]*\.claude/'
+    # Recursive force-deletion
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+/'
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+~'
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+\$HOME'
+    # System power control
+    - '(?i)\b(shutdown|poweroff|halt|reboot|init\s+[06])\b'
+    # Disk formatting
+    - '(?i)\b(mkfs|mke2fs|mkswap|fdisk|parted)\b'
+    - '(?i)\bdd\s+.*of=/dev/'
+    # Destructive SQL DDL
+    - '(?i)\bDROP\s+(DATABASE|SCHEMA)\b'
+    # Docker nuclear options
+    - '(?i)\bdocker\s+system\s+prune\s+(-[a-zA-Z]*a|-[a-zA-Z]*-all)'
+  message: "BLOCKED by multi-agent profile: killing agents, unauthorized config changes, and destructive operations are denied."
+
+gated:
+  patterns:
+    # Spawning new agent processes
+    - '(?i)\b(claude|claudereal)\s'
+    - '(?i)\b(codex|codexreal)\s'
+    - '(?i)\b(gemini|geminireal|gemini2)\s'
+    # Budget-exceeding operations (large API calls, bulk processing)
+    - '(?i)\bcurl\s+[^|&;]*(api\.openai\.com|api\.anthropic\.com)[^|&;]*-d\s'
+    - '(?i)\bcurl\s+[^|&;]*(api\.openai\.com|api\.anthropic\.com)[^|&;]*--data\s'
+    # Cross-agent communication (NATS publish to agent topics)
+    - '(?i)\bnats\s+pub\b'
+    - '(?i)\bcurl\s+[^|&;]*-X\s+POST[^|&;]*localhost[^|&;]*/agent/'
+    # SSH to remote hosts
+    - '\bssh\s+\S'
+    # Docker container lifecycle
+    - '(?i)\bdocker\s+(rm|stop|kill)\s'
+    - '(?i)\bdocker[\s-]compose\s+(down|rm|stop)\b'
+    - '(?i)\bdocker\s+compose\s+(down|rm|stop)\b'
+    # Git push
+    - 'git\s+push\b'
+    # Credential env exports
+    - '(?i)\bexport\s+\w*(SECRET|TOKEN|KEY|PASSWORD|PASS|API_KEY)\w*='
+  message: "GATED by multi-agent profile: agent spawn, cross-agent comms, or budget operation requires Tower approval."
+
+safe:
+  patterns:
+    # Reading agent logs and output
+    - '^\s*(cat|less|head|tail|grep|rg|jq)\s+[^|&;]*(\.claude|\.codex|\.gemini|agent|tower|logs)'
+    - '^\s*(cat|less|head|tail|grep|rg|jq)\s'
+    # NATS messaging (subscribe/read)
+    - '(?i)\bnats\s+(sub|stream\s+ls|stream\s+info|consumer\s+ls|consumer\s+info|server\s+info)\b'
+    # HTTP API calls to localhost services
+    - '^\s*curl\s+[^|&;]*(localhost|127\.0\.0\.1)'
+    - '^\s*curl\s+[^|&;]*-X\s+GET'
+    # Python / Node execution
+    - '^\s*(python|python3|python3\.\d+)\s'
+    - '^\s*(node|npm|npx|yarn|pnpm)\s'
+    # Docker operations (run, build, exec, inspect, logs)
+    - '^\s*docker\s+(ps|images|inspect|logs|stats|version|info|events|run|build|pull|exec|cp|tag|create)\b'
+    - '^\s*docker\s+network\s+(ls|inspect|create)\b'
+    - '^\s*docker\s+volume\s+(ls|inspect|create)\b'
+    - '^\s*docker[\s-]compose\s+(ps|logs|top|config|build|up|pull|exec)\b'
+    - '^\s*docker\s+compose\s+(ps|logs|top|config|build|up|pull|exec)\b'
+    # File system operations
+    - '^\s*(ls|ll|la|dir|find|fd)\b'
+    - '^\s*(cp|mv|mkdir|touch|rm)\s'
+    - '^\s*pwd\s*$'
+    - '^\s*cd\s'
+    - '^\s*(wc|sort|uniq|cut|awk|sed|diff)\s'
+    # Text editors
+    - '^\s*(vim|nvim|nano|code|cursor)\s'
+    # Git (read and write)
+    - '^\s*git\s+(status|diff|log|show|branch|tag|remote|fetch|stash|blame|ls-files)\b'
+    - '^\s*git\s+(add|commit|checkout|switch|restore|merge|rebase|pull|clone)\b'
+    # Process inspection
+    - '^\s*(ps|top|htop|free|df|du)\b'
+    - '^\s*(netstat|ss|lsof)\b'
+    # Environment introspection
+    - '^\s*(env|printenv|echo|which|type|id|whoami|hostname|uname|uptime|date)\b'
+    # Memoria queries
+    - '^\s*curl\s+[^|&;]*(127\.0\.0\.1|localhost):8000'
+    # NATS CLI (connect, monitoring)
+    - '(?i)\bnats\s+(account|bench|cheat|context|errors|events|kv|latency|object|rtt|server)\b'
+  message: ""
+
+default_action: allow
+
+# ---------------------------------------------------------------------------
+# Scope constraints
+# ---------------------------------------------------------------------------
+
+scope:
+  allowed_ips:
+    - "127.0.0.1"
+    - "192.168.0.0/24"
+  allowed_hostnames:
+    - "localhost"
+    - "*.local"
+    - "*.internal"
+  allowed_paths:
+    - "/home/**"
+    - "/opt/**"
+    - "/tmp/**"
+    - "C:/Users/**"
+  denied_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/root/**"
+
+# ---------------------------------------------------------------------------
+# Activities (timeboxing)
+# ---------------------------------------------------------------------------
+
+activities:
+  - name: orchestration
+    patterns:
+      - '^\s*(python|python3)\s+[^|&;]*(tower|orchestrat|dispatch|schedule)\S*'
+      - '(?i)\bnats\s'
+      - '^\s*curl\s+[^|&;]*localhost'
+    timebox_minutes: 0
+    grace_minutes: 5
+
+  - name: monitoring
+    patterns:
+      - '^\s*(cat|less|tail|grep|rg|jq)\s'
+      - '^\s*docker\s+(ps|logs|stats|inspect)\b'
+      - '^\s*(ps|top|htop)\b'
+    timebox_minutes: 0
+    grace_minutes: 5
+
+  - name: intervention
+    patterns:
+      - '(?i)\b(claude|codex|gemini)\s'
+      - '^\s*docker\s+(exec|run)\b'
+      - '^\s*(kill|pkill)\b'
+    timebox_minutes: 30
+    grace_minutes: 5
+
+# ---------------------------------------------------------------------------
+# Phases
+# ---------------------------------------------------------------------------
+
+phases:
+  - name: plan
+    description: "Define task graph, assign agents, set budgets."
+    timeout_minutes: 10
+    auto_advance: false
+    gates: []
+
+  - name: dispatch
+    description: "Spawn agents and distribute tasks via NATS."
+    timeout_minutes: 15
+    auto_advance: false
+    gates: []
+
+  - name: monitor
+    description: "Watch agent progress, collect results, handle errors."
+    timeout_minutes: 0
+    auto_advance: false
+    gates: []
+
+  - name: consolidate
+    description: "Merge agent outputs and produce final result."
+    timeout_minutes: 20
+    auto_advance: false
+    gates: []
+
+# ---------------------------------------------------------------------------
+# Re-injection
+# ---------------------------------------------------------------------------
+
+reinjection:
+  capsule_every: 15
+  full_every: 90
+  rules_path: ""
+  capsule_lines: 20
+
+# ---------------------------------------------------------------------------
+# Sandbox
+# ---------------------------------------------------------------------------
+
+sandbox:
+  enabled: false
+  memory_max: ""
+  cpu_quota: ""
+  network_deny: []
+  readonly_paths: []
+  inaccessible_paths: []
+
+# ---------------------------------------------------------------------------
+# Learning (cross-session memory)
+# ---------------------------------------------------------------------------
+
+learning:
+  enabled: true
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 15
+  extract_on:
+    - timebox_blocks
+    - successful_phases
+    - drift_events
+    - blocked_commands
+    - tool_gaps
+  auto_seed: true
+  search_top_k: 5
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+tags:
+  - multi-agent
+  - tower

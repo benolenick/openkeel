@@ -1,0 +1,302 @@
+# OpenKeel v0.2 — Web Deployment Profile
+# For deploying web applications to production servers via Docker Compose, SFTP,
+# and CI/CD. Covers automaite-terminal (DigitalOcean), maidgiftcards (HostGator),
+# skipvid (Render), benjaminolenick-blog (HostGator), ungoliant-red (HostGator).
+# Gates all production-facing operations; blocks destructive server commands.
+
+name: web-deploy
+description: >
+  Web deployment profile for production sites. Allows Docker Compose builds,
+  SFTP uploads, git operations, Python (paramiko/FastAPI), Node.js builds,
+  Kotlin/Gradle (Android), Caddy/Nginx config testing, and Stripe API reads.
+  Blocks rm -rf on servers, DROP DATABASE, force-push to main, deleting
+  systemd services, and raw credential echo. Gates docker compose up/down,
+  SFTP uploads, git push, Stripe webhook config, SSL cert changes, and
+  cPanel/DNS modifications.
+version: "0.2"
+
+# ---------------------------------------------------------------------------
+# Command classification tiers
+# ---------------------------------------------------------------------------
+
+blocked:
+  patterns:
+    # Recursive force-deletion on servers
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+/'
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+~'
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+\$HOME'
+    # Destructive SQL DDL
+    - '(?i)\bDROP\s+(DATABASE|SCHEMA)\b'
+    - '(?i)\bTRUNCATE\s+TABLE\b'
+    # Force-push to protected branches
+    - 'git\s+push\s+[^|&;]*--force[^|&;]*(main|master|production|prod|release)'
+    - 'git\s+push\s+[^|&;]*-f\s+[^|&;]*(main|master|production|prod|release)'
+    # Disk formatting
+    - '(?i)\b(mkfs|mke2fs|mkswap|fdisk|parted)\b'
+    - '(?i)\bdd\s+.*of=/dev/'
+    # System power control
+    - '(?i)\b(shutdown|poweroff|halt|reboot|init\s+[06])\b'
+    # Deleting systemd service files
+    - '(?i)\brm\s+[^|&;]*/etc/systemd/system/\S+\.service'
+    # Docker nuclear options
+    - '(?i)\bdocker\s+system\s+prune\s+(-[a-zA-Z]*a|-[a-zA-Z]*-all)'
+    - '(?i)\bdocker\s+volume\s+prune\s+(-[a-zA-Z]*a|-[a-zA-Z]*-all)'
+    # Echo credentials to stdout (leak risk)
+    - '(?i)\becho\s+[^|&;]*(sk_live_|pk_live_|whsec_|SECRET_KEY|API_KEY)'
+    # Deleting .htaccess on shared hosting (breaks routing)
+    - '(?i)\brm\s+[^|&;]*\.htaccess'
+    # canAIry honeypot traps — never run these
+    - '(?i)^\s*(claude|codex|gemini|ollama|aider)\s'
+  message: "BLOCKED by web-deploy profile: destructive server operation or credential leak denied."
+
+gated:
+  patterns:
+    # Docker Compose lifecycle (production services)
+    - '(?i)\bdocker[\s-]compose\s+(up|down|restart|rm|stop|kill)\b'
+    - '(?i)\bdocker\s+compose\s+(up|down|restart|rm|stop|kill)\b'
+    # Docker image push
+    - '(?i)\bdocker\s+(push|buildx\s+build[^|&;]*--push)\b'
+    # SFTP / SCP file uploads (deploying to production)
+    - '\bsftp\s+'
+    - '\bscp\s+'
+    - '\brsync\s+'
+    # Git push (publishing code)
+    - 'git\s+push\b'
+    # SSH to remote servers
+    - '\bssh\s+\S'
+    # Stripe API mutations (webhook config, payment links, subscriptions)
+    - '(?i)\bcurl\s+[^|&;]*api\.stripe\.com[^|&;]*-X\s+(POST|PUT|DELETE)\b'
+    - '(?i)\bcurl\s+[^|&;]*api\.stripe\.com[^|&;]*--request\s+(POST|PUT|DELETE)\b'
+    # SSL cert replacement
+    - '(?i)\bcertbot\s+(certonly|renew|delete)\b'
+    - '(?i)\bcp\s+[^|&;]*\.(pem|crt|key)\s+/etc/(ssl|nginx|caddy|letsencrypt)/'
+    # Caddy/Nginx config reload (applies config changes to live server)
+    - '(?i)\bsystemctl\s+(restart|reload)\s+(caddy|nginx)\b'
+    - '(?i)\bcaddy\s+reload\b'
+    # cPanel API calls
+    - '(?i)\bcurl\s+[^|&;]*cpanel\b'
+    - '(?i)\bcurl\s+[^|&;]*:2083\b'
+    # DNS record changes
+    - '(?i)\b(aws\s+route53|gcloud\s+dns|az\s+network\s+dns)\s'
+    # systemctl stop/disable
+    - '(?i)\bsystemctl\s+(stop|disable|mask|kill)\b'
+    # Package installs on production
+    - '(?i)\b(apt|apt-get|yum|dnf)\s+(install|remove|purge)\b'
+    # Credential env exports
+    - '(?i)\bexport\s+\w*(SECRET|TOKEN|KEY|PASSWORD|PASS|API_KEY|STRIPE)\w*='
+    # .htaccess modifications (affects live routing)
+    - '(?i)(>|>>|tee|sed\s+-i)\s+[^|&;]*\.htaccess'
+    # Crontab modifications on servers
+    - '(?i)\bcrontab\s+-e\b'
+  message: "GATED by web-deploy profile: production deployment, push, or config change requires approval."
+
+safe:
+  patterns:
+    # Docker read-only and build
+    - '^\s*docker\s+(ps|images|inspect|logs|stats|version|info|events|diff|top|port)\b'
+    - '^\s*docker\s+(build|pull|tag|create|run|exec|cp)\b'
+    - '^\s*docker\s+network\s+(ls|inspect|create)\b'
+    - '^\s*docker\s+volume\s+(ls|inspect|create)\b'
+    - '^\s*docker[\s-]compose\s+(ps|logs|top|config|build|pull|exec)\b'
+    - '^\s*docker\s+compose\s+(ps|logs|top|config|build|pull|exec)\b'
+    # Git operations (read + local write)
+    - '^\s*git\s+(status|diff|log|show|branch|tag|remote|fetch|stash|blame|ls-files|reflog)\b'
+    - '^\s*git\s+(add|commit|checkout|switch|restore|merge|rebase|pull|clone)\b'
+    # Python execution (paramiko, FastAPI, build scripts)
+    - '^\s*(python|python3|python3\.\d+)\s'
+    - '^\s*(pytest|py\.test|unittest|mypy|ruff|black)\b'
+    - '^\s*(pip|pipx)\s+(list|show|freeze)\b'
+    # Node.js / npm / build tools
+    - '^\s*(node|npm|npx|yarn|pnpm)\s'
+    # Kotlin / Gradle (Android builds)
+    - '^\s*(gradle|gradlew|./gradlew)\s'
+    - '^\s*javac?\s'
+    # Caddy/Nginx config testing (non-destructive)
+    - '^\s*nginx\s+-t\b'
+    - '^\s*caddy\s+(validate|adapt|fmt)\b'
+    # Certbot list (read-only)
+    - '^\s*certbot\s+certificates\b'
+    # Stripe API reads
+    - '^\s*curl\s+[^|&;]*api\.stripe\.com[^|&;]*-X\s+GET\b'
+    - '^\s*curl\s+(?!.*-X\s+(POST|PUT|DELETE|PATCH))[^|&;]*api\.stripe\.com'
+    # KeePassXC CLI (credential lookups)
+    - '(?i)\bkeepassxc-cli\s+(show|ls|locate)\b'
+    # File system operations
+    - '^\s*(ls|ll|la|dir|find|fd)\b'
+    - '^\s*(cat|less|head|tail|grep|rg|awk|sed|wc|sort|uniq|cut|diff|jq)\s'
+    - '^\s*(cp|mv|mkdir|touch|rm)\s'
+    - '^\s*pwd\s*$'
+    - '^\s*cd\s'
+    # Text editors
+    - '^\s*(vim|nvim|nano|code|cursor)\s'
+    # curl/wget (general GET requests)
+    - '^\s*curl\s+(?!.*-X\s+(POST|PUT|DELETE|PATCH))[^|&;]*https?://'
+    - '^\s*wget\s+[^|&;]*https?://'
+    # systemctl read-only + start/restart (gated for stop/disable)
+    - '^\s*systemctl\s+(status|is-active|is-enabled|list-units|show|start|restart|reload|enable|daemon-reload)\b'
+    # journalctl
+    - '^\s*journalctl\b'
+    # Process and system info
+    - '^\s*(ps|top|htop|free|df|du|uname|id|whoami|hostname|uptime|date)\b'
+    - '^\s*(netstat|ss|lsof|ip)\s'
+    - '^\s*(ping|traceroute|dig|nslookup|host)\s'
+    # Environment introspection
+    - '^\s*(env|printenv|echo|which|type|whereis)\b'
+    # Compression
+    - '^\s*(tar|gzip|gunzip|zip|unzip)\s'
+    # Crontab list (read-only)
+    - '^\s*crontab\s+-l\b'
+  message: ""
+
+default_action: allow
+
+# ---------------------------------------------------------------------------
+# Scope constraints
+# ---------------------------------------------------------------------------
+
+scope:
+  allowed_ips:
+    - "68.183.199.173"       # DigitalOcean (automaite)
+    - "192.168.0.224"        # jagg (build server)
+    - "127.0.0.1"
+  allowed_hostnames:
+    - "automaite.ca"
+    - "term.automaite.ca"
+    - "*.ontariogreenlife.org"  # HostGator shared hosting
+    - "benolenick.com"
+    - "benjaminolenick.com"
+    - "maidgiftcards.com"
+    - "maidgiftcards.ca"
+    - "ungoliant.red"
+    - "skipvid.io"
+    - "skipvid-api.onrender.com"
+    - "localhost"
+  allowed_paths:
+    - "/opt/jukebox/**"        # automaite stack on DO
+    - "/home/om/**"            # jagg home
+    - "/home1/benolenick/**"   # HostGator docroot
+    - "/tmp/**"
+    - "C:/Users/*/automaite-deploy/**"
+    - "C:/Users/*/Desktop/**"
+  denied_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/root/.ssh/**"
+
+# ---------------------------------------------------------------------------
+# Activities (timeboxing)
+# ---------------------------------------------------------------------------
+
+activities:
+  - name: building
+    patterns:
+      - '^\s*docker[\s-]compose\s+(build|pull)\b'
+      - '^\s*docker\s+compose\s+(build|pull)\b'
+      - '^\s*(npm|yarn|pnpm)\s+(build|install)\b'
+      - '^\s*(gradle|gradlew)\s'
+      - '^\s*pip\s+install\b'
+    timebox_minutes: 30
+    grace_minutes: 5
+
+  - name: deploying
+    patterns:
+      - '^\s*docker[\s-]compose\s+up\b'
+      - '^\s*docker\s+compose\s+up\b'
+      - '\b(sftp|scp|rsync)\s'
+      - 'git\s+push\b'
+    timebox_minutes: 15
+    grace_minutes: 5
+
+  - name: debugging
+    patterns:
+      - '^\s*docker\s+(logs|inspect|exec)\b'
+      - '^\s*journalctl\b'
+      - '^\s*systemctl\s+(status|show)\b'
+      - '^\s*(curl|ping|netstat|ss)\s'
+    timebox_minutes: 30
+    grace_minutes: 5
+
+  - name: config-editing
+    patterns:
+      - '^\s*(vim|nvim|nano|code|cursor)\s'
+      - '^\s*nginx\s+-t\b'
+      - '^\s*caddy\s+(validate|adapt)\b'
+    timebox_minutes: 20
+    grace_minutes: 5
+
+# ---------------------------------------------------------------------------
+# Phases
+# ---------------------------------------------------------------------------
+
+phases:
+  - name: prepare
+    description: "Review current state, pull latest code, check service health."
+    timeout_minutes: 10
+    auto_advance: false
+    gates: []
+
+  - name: build
+    description: "Build Docker images, compile apps, install dependencies."
+    timeout_minutes: 30
+    auto_advance: false
+    gates: []
+
+  - name: deploy
+    description: "Push to production — docker compose up, SFTP upload, git push."
+    timeout_minutes: 15
+    auto_advance: false
+    gates: []
+
+  - name: verify
+    description: "Health checks, log inspection, smoke tests on live site."
+    timeout_minutes: 10
+    auto_advance: false
+    gates: []
+
+# ---------------------------------------------------------------------------
+# Re-injection
+# ---------------------------------------------------------------------------
+
+reinjection:
+  capsule_every: 20
+  full_every: 120
+  rules_path: ""
+  capsule_lines: 20
+
+# ---------------------------------------------------------------------------
+# Sandbox
+# ---------------------------------------------------------------------------
+
+sandbox:
+  enabled: false
+  memory_max: ""
+  cpu_quota: ""
+  network_deny: []
+  readonly_paths: []
+  inaccessible_paths: []
+
+# ---------------------------------------------------------------------------
+# Learning
+# ---------------------------------------------------------------------------
+
+learning:
+  enabled: false
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 15
+  extract_on:
+    - timebox_blocks
+    - drift_events
+    - blocked_commands
+  auto_seed: true
+  search_top_k: 5
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+tags:
+  - web
+  - deploy
+  - production
+  - docker
+  - sftp

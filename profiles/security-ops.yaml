@@ -1,0 +1,267 @@
+# OpenKeel v0.2 — Security Operations Profile
+# Designed for security monitoring and incident analysis sessions based on the
+# Security Shallots project. Allows read-only log inspection, AI-assisted triage,
+# and dashboard access. Blocks production changes; gates SSH and schema mutations.
+
+name: security-ops
+description: >
+  Security operations and monitoring profile. Permits Suricata EVE parsing,
+  OSSEC log reading, syslog analysis, CrowdSec and pfSense filterlog inspection,
+  alert triage, AI queries (Ollama/OpenAI/Anthropic), SQLite FTS5 queries, and
+  aiohttp web dashboard access. Blocks production config changes, firewall rule
+  modifications, and service restarts. Gates SSH to production servers, database
+  schema changes, and alert suppression rule changes.
+version: "0.2"
+
+# ---------------------------------------------------------------------------
+# Command classification tiers
+# ---------------------------------------------------------------------------
+
+blocked:
+  patterns:
+    # Production config file writes
+    - '(?i)(>|>>)\s*/etc/(suricata|ossec|syslog|rsyslog|crowdsec|pf)/'
+    - '(?i)\btee\s+[^|&;]*/etc/(suricata|ossec|syslog|rsyslog|crowdsec|pf)/'
+    - '(?i)\bsed\s+-i[^|&;]*/etc/(suricata|ossec|syslog|rsyslog|crowdsec|pf)/'
+    # Firewall rule modifications
+    - '(?i)\b(iptables|nftables|nft|ufw)\s+(-A|-D|-I|-F|-X|-P|add|delete|insert|flush)\b'
+    - '(?i)\bpfctl\s+(-f|-F|-e|-d)\b'
+    # Service restarts on production (stop/restart/reload)
+    - '(?i)\bsystemctl\s+(stop|restart|reload|disable|mask|kill)\s+(suricata|ossec|ossec-hids|wazuh|crowdsec|rsyslog|syslog-ng|pf|haproxy|nginx)\b'
+    - '(?i)\bservice\s+\S+\s+(stop|restart|reload)\b'
+    # Recursive deletion
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+/'
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+~'
+    # Destructive SQL DDL
+    - '(?i)\bDROP\s+(DATABASE|SCHEMA|TABLE)\b'
+    - '(?i)\bTRUNCATE\s+TABLE\b'
+    # System power control
+    - '(?i)\b(shutdown|poweroff|halt|reboot|init\s+[06])\b'
+    # Disk formatting
+    - '(?i)\b(mkfs|mke2fs|mkswap|fdisk|parted)\b'
+    - '(?i)\bdd\s+.*of=/dev/'
+    # Log deletion (never delete security logs)
+    - '(?i)\brm\s+[^|&;]*/var/log/'
+    - '(?i)\b(>|>>)\s*/var/log/'
+    - '(?i)\btruncate\s+[^|&;]*/var/log/'
+  message: "BLOCKED by security-ops profile: production config changes, firewall modifications, and destructive operations are denied."
+
+gated:
+  patterns:
+    # SSH to production servers
+    - '\bssh\s+\S'
+    - '\bscp\s+'
+    # Database schema changes
+    - '(?i)\bCREATE\s+(TABLE|INDEX|VIEW)\b'
+    - '(?i)\bALTER\s+(TABLE|INDEX|VIEW)\b'
+    - '(?i)\bINSERT\s+INTO\b'
+    - '(?i)\bUPDATE\s+\S+\s+SET\b'
+    - '(?i)\bDELETE\s+FROM\b'
+    # Alert suppression rule changes (modifying threshold/suppression configs)
+    - '(?i)(>|>>|tee|sed\s+-i)\s+[^|&;]*(suppress|threshold|whitelist|allowlist)\.(conf|yaml|yml|json)\b'
+    - '(?i)\bcscli\s+(decisions|alerts)\s+delete\b'
+    # CrowdSec ban/unban operations
+    - '(?i)\bcscli\s+decisions\s+add\b'
+    # Modifying Suricata/OSSEC rules
+    - '(?i)(>|>>|tee|sed\s+-i)\s+[^|&;]*\.(rules|xml)\b'
+    # curl/wget POST/PUT/DELETE to external APIs
+    - '(?i)\bcurl\s+[^|&;]*-X\s+(POST|PUT|DELETE|PATCH)\b'
+    - '(?i)\bcurl\s+[^|&;]*--request\s+(POST|PUT|DELETE|PATCH)\b'
+  message: "GATED by security-ops profile: SSH, schema changes, or alert suppression modifications require review."
+
+safe:
+  patterns:
+    # Suricata EVE log parsing
+    - '^\s*(cat|less|head|tail|grep|rg|jq)\s+[^|&;]*eve\.json'
+    - '^\s*(cat|less|head|tail|grep|rg|jq)\s+[^|&;]*/var/log/suricata/'
+    # OSSEC log reading
+    - '^\s*(cat|less|head|tail|grep|rg)\s+[^|&;]*/var/ossec/'
+    - '^\s*(cat|less|head|tail|grep|rg|jq)\s+[^|&;]*alerts\.(log|json)'
+    # Syslog analysis
+    - '^\s*(cat|less|head|tail|grep|rg|zcat|zgrep)\s+[^|&;]*/var/log/(syslog|messages|auth\.log|secure)'
+    - '^\s*journalctl\b'
+    # CrowdSec read-only
+    - '^\s*cscli\s+(metrics|alerts\s+list|decisions\s+list|bouncers\s+list|machines\s+list|hub\s+list)\b'
+    # pfSense filterlog parsing
+    - '^\s*(cat|less|head|tail|grep|rg)\s+[^|&;]*filterlog'
+    - '^\s*(cat|less|head|tail|grep|rg)\s+[^|&;]*/var/log/pfSense\.log'
+    # General log inspection
+    - '^\s*(cat|less|head|tail|grep|rg|awk|sed|cut|sort|uniq|wc|jq)\s'
+    - '^\s*(zcat|zgrep|zless)\s'
+    # AI query APIs (Ollama, OpenAI, Anthropic) — GET requests and localhost
+    - '^\s*curl\s+[^|&;]*localhost:11434'
+    - '^\s*curl\s+[^|&;]*127\.0\.0\.1:11434'
+    - '^\s*curl\s+[^|&;]*api\.openai\.com'
+    - '^\s*curl\s+[^|&;]*api\.anthropic\.com'
+    # SQLite read queries (FTS5 and standard)
+    - '^\s*sqlite3\s+[^|&;]*\bSELECT\b'
+    - '^\s*sqlite3\s+\S+\s*$'
+    # Python execution (analysis scripts, dashboard)
+    - '^\s*(python|python3|python3\.\d+)\s+\S+\.py\b'
+    - '^\s*(python|python3)\s+-c\s'
+    - '^\s*(python|python3)\s+-m\s+(aiohttp|pytest|unittest)\b'
+    # aiohttp dashboard (read-only web access)
+    - '^\s*curl\s+[^|&;]*localhost:(8080|8443|5000)'
+    # File system inspection
+    - '^\s*(ls|ll|la|dir|find|fd)\b'
+    - '^\s*pwd\s*$'
+    - '^\s*cd\s'
+    - '^\s*(file|stat|wc|diff)\s'
+    # Service status (read-only)
+    - '^\s*systemctl\s+(status|is-active|is-enabled|list-units|show)\b'
+    # Docker read-only
+    - '^\s*docker\s+(ps|inspect|logs|stats|images|version|info)\b'
+    - '^\s*docker[\s-]compose\s+(ps|logs|top|config)\b'
+    - '^\s*docker\s+compose\s+(ps|logs|top|config)\b'
+    # Network diagnostics (read-only)
+    - '^\s*(netstat|ss|lsof)\b'
+    - '^\s*ip\s+(a|addr|link|route|neigh)\b'
+    - '^\s*(ping|traceroute|dig|nslookup|host)\s'
+    # Git read-only
+    - '^\s*git\s+(status|diff|log|show|branch|blame|ls-files)\b'
+    # Environment introspection
+    - '^\s*(id|whoami|hostname|uname|uptime|date|env|printenv|ps|top|free|df|du)\b'
+  message: ""
+
+default_action: allow
+
+# ---------------------------------------------------------------------------
+# Scope constraints
+# ---------------------------------------------------------------------------
+
+scope:
+  allowed_ips:
+    - "192.168.0.0/24"
+    - "127.0.0.1"
+  allowed_hostnames:
+    - "localhost"
+    - "*.internal"
+    - "*.local"
+  allowed_paths:
+    - "/var/log/**"
+    - "/var/ossec/**"
+    - "/home/*/security-shallots/**"
+    - "/tmp/**"
+    - "C:/Users/*/security-shallots/**"
+  denied_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/etc/sudoers"
+    - "/root/**"
+
+# ---------------------------------------------------------------------------
+# Activities (timeboxing)
+# ---------------------------------------------------------------------------
+
+activities:
+  - name: log-analysis
+    patterns:
+      - '^\s*(cat|less|tail|grep|rg|jq|zcat|zgrep)\s'
+      - '^\s*journalctl\b'
+      - '^\s*cscli\s'
+    timebox_minutes: 30
+    grace_minutes: 5
+
+  - name: alert-triage
+    patterns:
+      - '^\s*curl\s+[^|&;]*(localhost:11434|api\.openai\.com|api\.anthropic\.com)'
+      - '^\s*(python|python3)\s+[^|&;]*triage\S*\.py\b'
+      - '^\s*sqlite3\s'
+    timebox_minutes: 45
+    grace_minutes: 10
+
+  - name: dashboard
+    patterns:
+      - '^\s*curl\s+[^|&;]*localhost:(8080|8443|5000)'
+      - '^\s*(python|python3)\s+-m\s+aiohttp\b'
+    timebox_minutes: 20
+    grace_minutes: 5
+
+  - name: correlation
+    patterns:
+      - '^\s*(python|python3)\s+\S+\.py\b'
+      - '^\s*sqlite3\s'
+      - '^\s*(awk|sed|sort|uniq|cut)\s'
+    timebox_minutes: 30
+    grace_minutes: 5
+
+# ---------------------------------------------------------------------------
+# Phases
+# ---------------------------------------------------------------------------
+
+phases:
+  - name: ingest
+    description: "Collect and parse raw security events from all sources."
+    timeout_minutes: 15
+    auto_advance: false
+    gates: []
+
+  - name: triage
+    description: "AI-assisted alert triage and severity classification."
+    timeout_minutes: 45
+    auto_advance: false
+    gates: []
+
+  - name: correlate
+    description: "Cross-source event correlation and pattern detection."
+    timeout_minutes: 30
+    auto_advance: false
+    gates: []
+
+  - name: report
+    description: "Generate incident summaries and dashboards."
+    timeout_minutes: 20
+    auto_advance: false
+    gates: []
+
+# ---------------------------------------------------------------------------
+# Re-injection
+# ---------------------------------------------------------------------------
+
+reinjection:
+  capsule_every: 20
+  full_every: 120
+  rules_path: ""
+  capsule_lines: 20
+
+# ---------------------------------------------------------------------------
+# Sandbox
+# ---------------------------------------------------------------------------
+
+sandbox:
+  enabled: true
+  memory_max: "4G"
+  cpu_quota: "200%"
+  network_deny: []
+  readonly_paths:
+    - "/etc"
+    - "/var/log"
+    - "/var/ossec"
+  inaccessible_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/root"
+
+# ---------------------------------------------------------------------------
+# Learning (cross-session memory)
+# ---------------------------------------------------------------------------
+
+learning:
+  enabled: false
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 15
+  extract_on:
+    - timebox_blocks
+    - drift_events
+    - blocked_commands
+  auto_seed: true
+  search_top_k: 5
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+tags:
+  - security
+  - monitoring
+  - soc

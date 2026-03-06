@@ -1,0 +1,251 @@
+# OpenKeel v0.2 — Content Pipeline Profile
+# For content generation pipelines (e.g., itsnotthatparis.ca). Allows Python scripts,
+# LLM API calls, web scraping, SFTP deploy, git operations, and image processing.
+# Blocks code changes outside content directories, database drops, and system commands.
+# Gates file uploads, git push, and publishing/deploy commands.
+
+name: content-pipeline
+description: >
+  Content generation pipeline profile. Permits Python scripts, LLM API calls
+  (OpenAI, Anthropic), web scraping (requests, beautifulsoup, selenium), SFTP
+  deploy, git operations, and image processing (PIL, ImageMagick). Blocks code
+  changes outside content directories, database drops, and system commands. Gates
+  SFTP/SCP uploads, git push, and publishing/deploy commands. Scope-restricted
+  to content directories.
+version: "0.2"
+
+# ---------------------------------------------------------------------------
+# Command classification tiers
+# ---------------------------------------------------------------------------
+
+blocked:
+  patterns:
+    # Code changes outside content directories (system files, configs)
+    - '(?i)(>|>>|tee|sed\s+-i)\s+[^|&;]*/etc/'
+    - '(?i)(>|>>|tee|sed\s+-i)\s+[^|&;]*/boot/'
+    - '(?i)(>|>>|tee|sed\s+-i)\s+[^|&;]*/sys/'
+    - '(?i)(>|>>|tee|sed\s+-i)\s+[^|&;]*/proc/'
+    # Database destructive operations
+    - '(?i)\bDROP\s+(DATABASE|SCHEMA|TABLE)\b'
+    - '(?i)\bTRUNCATE\s+TABLE\b'
+    - '(?i)\bDELETE\s+FROM\s+\S+\s*;'
+    # System commands (no system admin in content pipeline)
+    - '(?i)\bsystemctl\s+(stop|restart|disable|mask|kill)\b'
+    - '(?i)\bservice\s+\S+\s+(stop|restart)\b'
+    - '(?i)\b(shutdown|poweroff|halt|reboot|init\s+[06])\b'
+    # Recursive deletion
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+/'
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+~'
+    # Disk formatting
+    - '(?i)\b(mkfs|mke2fs|mkswap|fdisk|parted)\b'
+    - '(?i)\bdd\s+.*of=/dev/'
+    # Docker management (not part of content pipeline)
+    - '(?i)\bdocker\s+(rm|stop|kill|system\s+prune)\b'
+    # Package management
+    - '(?i)\b(apt|apt-get|yum|dnf)\s+(install|remove|purge)\b'
+    # Firewall and network config
+    - '(?i)\b(iptables|nftables|ufw)\s'
+    # SSH key operations (prevent key exfil)
+    - '(?i)\bcat\s+[^|&;]*\.ssh/(id_|authorized_keys)'
+  message: "BLOCKED by content-pipeline profile: system changes and destructive operations are not permitted in content workflows."
+
+gated:
+  patterns:
+    # SFTP / SCP file uploads (deploy operations)
+    - '\bsftp\s+'
+    - '\bscp\s+'
+    - '\brsync\s+'
+    # Git push (publishing code/content)
+    - 'git\s+push\b'
+    # Publishing and deploy commands
+    - '(?i)\b(deploy|publish|release)\b'
+    - '(?i)\bnpm\s+publish\b'
+    # curl/wget POST/PUT (API mutations, content submission)
+    - '(?i)\bcurl\s+[^|&;]*-X\s+(POST|PUT|DELETE|PATCH)\b'
+    - '(?i)\bcurl\s+[^|&;]*--request\s+(POST|PUT|DELETE|PATCH)\b'
+    # SSH to remote hosts
+    - '\bssh\s+\S'
+    # Credential env exports
+    - '(?i)\bexport\s+\w*(SECRET|TOKEN|KEY|PASSWORD|PASS|API_KEY)\w*='
+    # Cron job modifications
+    - '(?i)\bcrontab\s+-e\b'
+    - '(?i)(>|>>)\s+[^|&;]*/var/spool/cron/'
+  message: "GATED by content-pipeline profile: file upload, publish, or deploy operation requires approval."
+
+safe:
+  patterns:
+    # Python execution (content scripts, scraping, processing)
+    - '^\s*(python|python3|python3\.\d+)\s+\S+\.py\b'
+    - '^\s*(python|python3)\s+-c\s'
+    - '^\s*(python|python3)\s+-m\s+(pytest|unittest|http\.server|json\.tool)\b'
+    # LLM API calls (read — GET requests)
+    - '^\s*curl\s+[^|&;]*api\.openai\.com'
+    - '^\s*curl\s+[^|&;]*api\.anthropic\.com'
+    - '^\s*curl\s+[^|&;]*localhost:11434'
+    # Web scraping tools
+    - '^\s*(python|python3)\s+[^|&;]*(scrape|crawl|fetch|ingest)\S*\.py\b'
+    - '^\s*curl\s+[^|&;]*https?://'
+    - '^\s*wget\s+[^|&;]*https?://'
+    # Image processing
+    - '^\s*(convert|mogrify|identify|composite|montage)\s'
+    - '^\s*(python|python3)\s+[^|&;]*(image|img|photo|resize|thumbnail)\S*\.py\b'
+    - '^\s*exiftool\s'
+    # Git operations
+    - '^\s*git\s+(status|diff|log|show|branch|tag|remote|fetch|stash|blame|ls-files|reflog)\b'
+    - '^\s*git\s+(add|commit|checkout|switch|restore|merge|rebase|pull|clone)\b'
+    # File system operations
+    - '^\s*(ls|ll|la|dir|find|fd)\b'
+    - '^\s*(cat|less|head|tail|grep|rg|awk|sed|wc|sort|uniq|cut|diff|jq)\s'
+    - '^\s*(cp|mv|mkdir|touch|rm)\s'
+    - '^\s*pwd\s*$'
+    - '^\s*cd\s'
+    # Text editors
+    - '^\s*(vim|nvim|nano|code|cursor)\s'
+    # Node / npm (for static site generators, etc.)
+    - '^\s*(node|npm|npx|yarn|pnpm)\s'
+    # Environment introspection
+    - '^\s*(env|printenv|echo|which|type|id|whoami|hostname|date)\b'
+    # Process info
+    - '^\s*(ps|top|free|df|du)\b'
+    # Compression
+    - '^\s*(tar|gzip|gunzip|zip|unzip)\s'
+    # CSV / JSON utilities
+    - '^\s*(csvkit|csvstat|csvlook|jq|yq)\s'
+    # Cron listing (read-only)
+    - '^\s*crontab\s+-l\b'
+  message: ""
+
+default_action: allow
+
+# ---------------------------------------------------------------------------
+# Scope constraints
+# ---------------------------------------------------------------------------
+
+scope:
+  allowed_ips: []
+  allowed_hostnames: []
+  allowed_paths:
+    - "/home/*/paris-content/**"
+    - "/home/*/content/**"
+    - "/home/*/pipeline/**"
+    - "/tmp/**"
+    - "/var/tmp/**"
+    - "C:/Users/*/paris-content/**"
+    - "C:/Users/*/content/**"
+    - "C:/Users/*/pipeline/**"
+    - "C:/Users/*/itsnotthatparis/**"
+    - "C:/Users/*/Desktop/**"
+  denied_paths:
+    - "/etc/**"
+    - "/boot/**"
+    - "/sys/**"
+    - "/proc/**"
+    - "/root/**"
+
+# ---------------------------------------------------------------------------
+# Activities (timeboxing)
+# ---------------------------------------------------------------------------
+
+activities:
+  - name: scraping
+    patterns:
+      - '^\s*(python|python3)\s+[^|&;]*(scrape|crawl|fetch|ingest)\S*\.py\b'
+      - '^\s*(curl|wget)\s+[^|&;]*https?://'
+    timebox_minutes: 30
+    grace_minutes: 5
+
+  - name: generation
+    patterns:
+      - '^\s*(python|python3)\s+[^|&;]*(generate|write|compose|blog|post)\S*\.py\b'
+      - '^\s*curl\s+[^|&;]*(api\.openai\.com|api\.anthropic\.com|localhost:11434)'
+    timebox_minutes: 45
+    grace_minutes: 10
+
+  - name: processing
+    patterns:
+      - '^\s*(convert|mogrify|identify)\s'
+      - '^\s*(python|python3)\s+[^|&;]*(image|resize|process|transform)\S*\.py\b'
+    timebox_minutes: 20
+    grace_minutes: 5
+
+  - name: deploy
+    patterns:
+      - '\b(sftp|scp|rsync)\s'
+      - 'git\s+push\b'
+      - '(?i)\b(deploy|publish)\b'
+    timebox_minutes: 10
+    grace_minutes: 3
+
+# ---------------------------------------------------------------------------
+# Phases
+# ---------------------------------------------------------------------------
+
+phases:
+  - name: gather
+    description: "Scrape, fetch, and collect source content and data."
+    timeout_minutes: 30
+    auto_advance: false
+    gates: []
+
+  - name: generate
+    description: "Generate content via LLM APIs and transformation scripts."
+    timeout_minutes: 45
+    auto_advance: false
+    gates: []
+
+  - name: review
+    description: "Validate output quality, dates, and data integrity."
+    timeout_minutes: 15
+    auto_advance: false
+    gates: []
+
+  - name: publish
+    description: "Deploy content to hosting via SFTP/SCP/git push."
+    timeout_minutes: 10
+    auto_advance: false
+    gates: []
+
+# ---------------------------------------------------------------------------
+# Re-injection
+# ---------------------------------------------------------------------------
+
+reinjection:
+  capsule_every: 20
+  full_every: 120
+  rules_path: ""
+  capsule_lines: 20
+
+# ---------------------------------------------------------------------------
+# Sandbox
+# ---------------------------------------------------------------------------
+
+sandbox:
+  enabled: false
+  memory_max: ""
+  cpu_quota: ""
+  network_deny: []
+  readonly_paths: []
+  inaccessible_paths: []
+
+# ---------------------------------------------------------------------------
+# Learning (cross-session memory)
+# ---------------------------------------------------------------------------
+
+learning:
+  enabled: false
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 15
+  extract_on:
+    - timebox_blocks
+    - drift_events
+    - blocked_commands
+  auto_seed: true
+  search_top_k: 5
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+tags:
+  - content
+  - pipeline

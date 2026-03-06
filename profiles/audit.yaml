@@ -1,0 +1,227 @@
+# OpenKeel v0.2 — Audit / Read-Only Profile
+# Strictly read-only mode for code review, security audits, and compliance checks.
+# Default action is DENY. Only read-only commands are in the safe tier. ALL write
+# operations are blocked — there is no gated tier (everything is either safe or blocked).
+# No phases, no learning, no sandbox writes.
+
+name: audit
+description: >
+  Read-only audit and review profile. Permits only non-mutating commands: file
+  reading (cat, less, head, tail), searching (grep, rg, find, fd), directory
+  listing (ls, pwd), git read-only operations (log, diff, status, show, blame),
+  read-only Python scripts, and SQLite SELECT queries. Blocks ALL write operations
+  including rm, mv, cp, echo >, tee, sed -i, git push/commit/add, docker rm/stop,
+  and any command with output redirection. Default deny — no gated tier.
+version: "0.2"
+
+# ---------------------------------------------------------------------------
+# Command classification tiers
+# ---------------------------------------------------------------------------
+
+blocked:
+  patterns:
+    # File deletion
+    - '\brm\s+'
+    - '\bunlink\s+'
+    # File move / copy (could overwrite)
+    - '\bmv\s+'
+    - '\bcp\s+'
+    # File creation and modification
+    - '\btouch\s+'
+    - '\bmkdir\s+'
+    - '\bln\s+'
+    # Output redirection (write to file)
+    - '\s+>\s+'
+    - '\s+>>\s+'
+    - '\s+2>\s+'
+    - '\s+&>\s+'
+    # tee (writes to file)
+    - '\btee\s+'
+    # In-place editing
+    - '\bsed\s+-i\b'
+    - '\bperl\s+-[a-zA-Z]*i\b'
+    # Text editors (write-capable)
+    - '\b(vim|nvim|vi|nano|emacs|code|cursor)\s+'
+    # Git write operations
+    - '\bgit\s+(push|commit|add|merge|rebase|cherry-pick|reset|revert|stash\s+(push|pop|drop|apply|clear)|tag\s+-[ad]|branch\s+-[dDm]|checkout\s+-b|switch\s+-c|init|clone|pull|fetch)\b'
+    # Docker write operations
+    - '(?i)\bdocker\s+(rm|stop|kill|run|exec|build|push|pull|create|tag|rmi|system|volume\s+(rm|create|prune)|network\s+(rm|create|prune))\b'
+    - '(?i)\bdocker[\s-]compose\s+(up|down|rm|stop|kill|build|pull|exec|run|create)\b'
+    - '(?i)\bdocker\s+compose\s+(up|down|rm|stop|kill|build|pull|exec|run|create)\b'
+    # Service management
+    - '(?i)\bsystemctl\s+(start|stop|restart|reload|enable|disable|mask|kill|daemon-reload)\b'
+    - '(?i)\bservice\s+\S+\s+(start|stop|restart|reload)\b'
+    # Package management
+    - '(?i)\b(apt|apt-get|yum|dnf|pacman|brew|pip|npm|yarn|pnpm|cargo|go)\s+(install|remove|purge|uninstall|update|upgrade)\b'
+    # SQL write operations
+    - '(?i)\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE)\s+'
+    # System power control
+    - '(?i)\b(shutdown|poweroff|halt|reboot|init\s+[06])\b'
+    # Disk operations
+    - '(?i)\b(mkfs|mke2fs|mkswap|fdisk|parted|dd)\b'
+    # chmod / chown
+    - '(?i)\bchmod\s+'
+    - '(?i)\bchown\s+'
+    # SSH (could execute remote commands)
+    - '\bssh\s+\S'
+    - '\bscp\s+'
+    - '\brsync\s+'
+    - '\bsftp\s+'
+    # curl/wget with write flags
+    - '(?i)\bcurl\s+[^|&;]*(-o|--output|-X\s+(POST|PUT|DELETE|PATCH)|--request\s+(POST|PUT|DELETE|PATCH))\b'
+    - '(?i)\bwget\s+[^|&;]*-O\s'
+    # kill / signal commands
+    - '\bkill\s+'
+    - '\bkillall\s+'
+    - '\bpkill\s+'
+    # Credential env exports
+    - '(?i)\bexport\s+'
+    # Source / eval (could execute arbitrary code)
+    - '(?i)\bsource\s+'
+    - '(?i)\beval\s+'
+    # crontab modification
+    - '\bcrontab\s+-[er]\b'
+    # Python with -c (could write) — only allow scripts and SELECT
+    - '^\s*(python|python3)\s+-m\s+'
+  message: "BLOCKED by audit profile: ALL write and mutating operations are denied in read-only audit mode."
+
+# No gated tier — everything is either safe (read-only) or blocked (everything else)
+gated:
+  patterns: []
+  message: ""
+
+safe:
+  patterns:
+    # File reading
+    - '^\s*(cat|bat)\s+'
+    - '^\s*(less|more)\s+'
+    - '^\s*(head|tail)\s+'
+    # Searching
+    - '^\s*(grep|rg|ripgrep|ag|ack)\s+'
+    - '^\s*(find|fd)\s+'
+    # Directory listing and navigation
+    - '^\s*(ls|ll|la|dir)\b'
+    - '^\s*pwd\s*$'
+    - '^\s*tree\b'
+    # File metadata
+    - '^\s*(file|stat|wc|du)\s+'
+    # Text processing (read-only — no -i flag)
+    - '^\s*(sort|uniq|cut|awk|sed)\s+(?!.*-i\b)'
+    - '^\s*(diff|comm)\s+'
+    - '^\s*(strings|xxd|hexdump|od)\s+'
+    - '^\s*jq\s+'
+    # Git read-only operations
+    - '^\s*git\s+(log|diff|status|show|blame|shortlog|describe|ls-files|ls-tree|rev-parse|reflog|worktree\s+list|remote\s+-v|branch\s*$|branch\s+-[avr]|tag\s*$|tag\s+-l)\b'
+    # Python read-only scripts (file argument only, no -c or -m)
+    - '^\s*(python|python3)\s+\S+\.py\b'
+    # Python -c for read-only one-liners
+    - '^\s*(python|python3)\s+-c\s+'
+    # SQLite3 SELECT only
+    - '(?i)^\s*sqlite3\s+[^|&;]*\bSELECT\b'
+    - '(?i)^\s*sqlite3\s+[^|&;]*\b\.schema\b'
+    - '(?i)^\s*sqlite3\s+[^|&;]*\b\.tables\b'
+    - '(?i)^\s*sqlite3\s+[^|&;]*\b\.headers\b'
+    - '(?i)^\s*sqlite3\s+[^|&;]*\b\.mode\b'
+    # Environment introspection (read-only)
+    - '^\s*(id|whoami|hostname|uname|uptime|date|env|printenv|echo|which|type|whereis)\b'
+    # Process and system info (read-only)
+    - '^\s*(ps|top|htop|free|df|du)\b'
+    - '^\s*(netstat|ss|lsof)\b'
+    - '^\s*ip\s+(a|addr|link|route|neigh)\b'
+    # Docker read-only
+    - '^\s*docker\s+(ps|images|inspect|logs|stats|version|info|events|diff|top|port)\b'
+    - '^\s*docker[\s-]compose\s+(ps|logs|top|config|version)\b'
+    - '^\s*docker\s+compose\s+(ps|logs|top|config|version)\b'
+    # curl GET only (no flags that write)
+    - '^\s*curl\s+(?!.*\s-o\b)(?!.*\s--output\b)(?!.*\s-X\b)(?!.*\s--request\b)[^|&;>]+$'
+    # wget --spider (check only, no download)
+    - '^\s*wget\s+--spider\s'
+    # Crontab list
+    - '^\s*crontab\s+-l\b'
+    # systemctl / service status only
+    - '^\s*systemctl\s+(status|is-active|is-enabled|list-units|list-timers|show)\b'
+    - '^\s*service\s+\S+\s+status\b'
+    # journalctl (read logs)
+    - '^\s*journalctl\b'
+  message: ""
+
+default_action: deny
+
+# ---------------------------------------------------------------------------
+# Scope constraints
+# ---------------------------------------------------------------------------
+
+scope:
+  allowed_ips: []
+  allowed_hostnames: []
+  allowed_paths:
+    - "/**"            # Read-only access everywhere (writes blocked at command level)
+  denied_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/etc/sudoers"
+    - "/root/.ssh/**"
+
+# ---------------------------------------------------------------------------
+# Activities (timeboxing — not needed for audit, but included for format)
+# ---------------------------------------------------------------------------
+
+activities:
+  - name: review
+    patterns:
+      - '^\s*(cat|less|head|tail|grep|rg|find|fd)\s'
+      - '^\s*git\s+(log|diff|status|show|blame)\b'
+    timebox_minutes: 0
+    grace_minutes: 5
+
+# ---------------------------------------------------------------------------
+# Phases — none (continuous audit, no workflow phases)
+# ---------------------------------------------------------------------------
+
+phases: []
+
+# ---------------------------------------------------------------------------
+# Re-injection
+# ---------------------------------------------------------------------------
+
+reinjection:
+  capsule_every: 30
+  full_every: 200
+  rules_path: ""
+  capsule_lines: 20
+
+# ---------------------------------------------------------------------------
+# Sandbox
+# ---------------------------------------------------------------------------
+
+sandbox:
+  enabled: true
+  memory_max: "2G"
+  cpu_quota: "100%"
+  network_deny: []
+  readonly_paths:
+    - "/"
+  inaccessible_paths:
+    - "/etc/shadow"
+    - "/etc/gshadow"
+    - "/root"
+
+# ---------------------------------------------------------------------------
+# Learning (cross-session memory — disabled for audit)
+# ---------------------------------------------------------------------------
+
+learning:
+  enabled: false
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 15
+  extract_on: []
+  auto_seed: false
+  search_top_k: 5
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+tags:
+  - audit
+  - readonly
