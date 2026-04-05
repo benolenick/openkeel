@@ -238,7 +238,10 @@ def main():
     # Quick daemon check — if it's down, still log what we can
     tool_name = input_data.get("tool_name", "")
     tool_input = input_data.get("tool_input", {})
-    tool_output = input_data.get("tool_output", "")
+    # Claude Code sends "tool_response", not "tool_output"
+    tool_output = input_data.get("tool_response", "") or input_data.get("tool_output", "")
+    if isinstance(tool_output, dict):
+        tool_output = json.dumps(tool_output)
 
     handlers = {
         "Read": handle_read,

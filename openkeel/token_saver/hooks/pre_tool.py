@@ -107,6 +107,85 @@ def _strip_ansi(text: str) -> str:
     return _ANSI.sub("", text)
 
 
+def _try_compress_json(raw: str) -> str | None:
+    """Compress JSON API responses (Hyphae recall, Kanban, etc.).
+
+    Hyphae /recall returns {"results": [{"text": "...", "score": 0.5, ...}, ...]}.
+    These are often 10-30k chars. We keep top results by score, truncate text.
+    """
+    try:
+        data = json.loads(raw.strip())
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    # Hyphae recall response
+    if "results" in data and isinstance(data["results"], list):
+        results = data["results"]
+        compressed_results = []
+        for r in results[:10]:  # Keep top 10
+            if isinstance(r, dict):
+                text = r.get("text", "")
+                # Truncate long texts to 500 chars
+                if len(text) > 500:
+                    text = text[:500] + "..."
+                compressed_results.append({
+                    "text": text,
+                    "score": round(r.get("score", 0), 3),
+                    "source": r.get("source", ""),
+                })
+        return json.dumps({"results": compressed_results}, indent=1)
+
+    # Kanban board response (list of tasks)
+    if isinstance(data, list) and data and isinstance(data[0], dict) and "title" in data[0]:
+        compressed = []
+        for item in data[:20]:
+            compressed.append({
+                "id": item.get("id"),
+                "title": item.get("title", "")[:100],
+                "status": item.get("status"),
+                "priority": item.get("priority"),
+            })
+        return json.dumps(compressed, indent=1)
+
+    # Generic large JSON — compact it
+    compact = json.dumps(data, separators=(",", ":"))
+    if len(compact) < len(raw) * 0.7:
+        return compact
+
+    return None
+
+
+def _run_and_compress(command: str, timeout: int = 15, label: str = "",
+                      json_compress: bool = False) -> dict | None:
+    """Run a command and compress if output is large. Returns block dict or None."""
+    output, rc = _run_cmd(command + " 2>&1" if "2>&1" not in command else command, timeout=timeout)
+    raw = _strip_ansi(output)
+
+    if len(raw) <= _MIN_COMPRESS:
+        # Small output — let Claude handle it normally (don't block)
+        return None
+
+    # Try JSON compression if flagged
+    compressed = None
+    if json_compress:
+        compressed = _try_compress_json(raw)
+
+    if compressed is None:
+        compressed = _smart_truncate(raw, _MAX_OUTPUT)
+
+    saved = max(0, len(raw) - len(compressed))
+    if saved > 200:
+        _record_savings("bash_compress", "Bash", len(raw), saved,
+                        f"{label}: {command[:80]}")
+        return {"decision": "block", "reason": compressed}
+
+    # No meaningful savings — let the original command run
+    return None
+
+
 def _smart_truncate(output: str, max_chars: int = _MAX_OUTPUT) -> str:
     """Keep head + tail, drop middle."""
     if len(output) <= max_chars:
@@ -270,8 +349,8 @@ def handle_bash(tool_input: dict) -> dict | None:
     if not command:
         return None
 
-    # Skip multi-line scripts, heredocs, complex pipelines — too risky to modify
-    if command.count("\n") > 2 or "<<" in command:
+    # Skip heredocs — too risky to modify
+    if "<<" in command:
         return None
 
     cmd_base = command.split("|")[0].strip().split("&&")[0].strip()
@@ -359,19 +438,36 @@ def handle_bash(tool_input: dict) -> dict | None:
                         "docker build -q")
         return {"decision": "block", "reason": f"[TOKEN SAVER] Ran with -q:\n{compressed}"}
 
-    # --- Generic large-output commands: run + truncate if huge ---
-    # We let most commands through, but intercept known-verbose read-only ones
-    if any(cmd_lower.startswith(p) for p in ("find ", "ls -", "tree ", "du ")):
+    # --- Directory listings: run + truncate if huge ---
+    if any(cmd_lower.startswith(p) for p in ("find ", "tree ", "du ")):
         if "| head" not in command and "| tail" not in command and "-maxdepth" not in command:
-            # Run it, but truncate if huge
-            output, rc = _run_cmd(command + " 2>&1", timeout=10)
-            raw = _strip_ansi(output)
-            if len(raw) > _MIN_COMPRESS:
-                compressed = _smart_truncate(raw, _MAX_OUTPUT)
-                saved = max(0, len(raw) - len(compressed))
-                _record_savings("bash_compress", "Bash", len(raw), saved,
-                                f"truncated: {command[:80]}")
-                return {"decision": "block", "reason": f"[TOKEN SAVER] Truncated output ({len(raw)} → {len(compressed)} chars):\n{compressed}"}
+            return _run_and_compress(command, timeout=10, label="dir listing")
+
+    # --- Hyphae API: curl to port 8100 (avg 13.7k chars, #1 consumer) ---
+    if "8100" in command and "curl" in cmd_lower:
+        return _run_and_compress(command, timeout=15, label="hyphae", json_compress=True)
+
+    # --- Kanban API: curl to port 8200 ---
+    if "8200" in command and "curl" in cmd_lower:
+        return _run_and_compress(command, timeout=10, label="kanban", json_compress=True)
+
+    # --- SSH commands (avg 7k chars, #2 consumer) ---
+    if cmd_lower.startswith("ssh "):
+        return _run_and_compress(command, timeout=30, label="ssh")
+
+    # --- cat/tail/head of log files and large files ---
+    if any(cmd_lower.startswith(p) for p in ("cat ", "tail ", "head ")):
+        # Only intercept if reading something likely to be large (logs, .py, .json, etc.)
+        if any(ext in command for ext in (".log", ".json", ".py", ".txt", ".csv", ".html", "/tmp/")):
+            return _run_and_compress(command, timeout=5, label="file read")
+
+    # --- journalctl, dmesg, syslog ---
+    if any(cmd_lower.startswith(p) for p in ("journalctl", "dmesg", "sudo journalctl", "sudo dmesg")):
+        return _run_and_compress(command, timeout=10, label="syslog")
+
+    # --- ps aux, systemctl, process listings ---
+    if any(cmd_lower.startswith(p) for p in ("ps aux", "ps -", "systemctl list", "systemctl --user list")):
+        return _run_and_compress(command, timeout=5, label="process list")
 
     return None
 
