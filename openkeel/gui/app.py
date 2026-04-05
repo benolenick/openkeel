@@ -6,6 +6,11 @@ import sys
 import time
 from pathlib import Path
 
+import json
+import threading
+import urllib.error
+import urllib.request
+
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import (
@@ -13,6 +18,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QPushButton,
@@ -205,6 +211,21 @@ QPushButton#history-toggle {{
 QPushButton#history-toggle:hover {{
     color: {accent};
 }}
+#agents-panel {{
+    background: #111111;
+    border-left: 1px solid #333;
+}}
+#agents-panel QLabel {{
+    font-size: 11px;
+    color: {TEXT_DIM};
+}}
+#agents-panel .agent-name {{
+    color: {accent};
+    font-weight: bold;
+}}
+.agent-dot-idle {{ color: #22c55e; }}
+.agent-dot-busy {{ color: #f59e0b; }}
+.agent-dot-offline {{ color: #888888; }}
 """
 
 
@@ -233,7 +254,7 @@ class OpenKeelWindow(QMainWindow):
         self._mission = self._load_mission()
         self._profile = self._load_profile()
         self._cached_profile_obj = None  # cached Profile for governance
-        self._shell = "powershell.exe"
+        self._shell = "bash"
         self._active_mode = self._gui_settings.get("default_mode", "Normal")
 
         # -- Outer frame (neon accent border) --
@@ -256,7 +277,7 @@ class OpenKeelWindow(QMainWindow):
         # -- Terminal --
         font_family = self._gui_settings.get("font_family", "Cascadia Mono")
         font_size = self._gui_settings.get("font_size", 11)
-        self._terminal = TerminalWidget(shell="powershell.exe")
+        self._terminal = TerminalWidget(shell="bash")
         self._terminal.process_finished.connect(self._on_shell_exit)
         self._terminal._overwatch_callback = self._overwatch.feed
         self._terminal._governance_callback = self._governance_check
@@ -267,7 +288,19 @@ class OpenKeelWindow(QMainWindow):
         self._count_allowed = 0
         self._count_gated = 0
         self._session_id = str(int(time.time()))
-        frame_layout.addWidget(self._terminal, stretch=1)
+
+        # Content area: terminal + agents panel side by side
+        content = QWidget()
+        content_layout = QHBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self._terminal, stretch=1)
+
+        self._agents_panel = self._build_agents_panel()
+        self._agents_panel.setVisible(False)
+        content_layout.addWidget(self._agents_panel)
+
+        frame_layout.addWidget(content, stretch=1)
 
         # -- Alert bar (Overwatch alerts) --
         self._alert_bar = self._build_alert_bar()
@@ -387,6 +420,13 @@ class OpenKeelWindow(QMainWindow):
         layout.addWidget(self._mode_combo)
 
         layout.addStretch()
+
+        # Agents panel button
+        self._agents_btn = QPushButton("Agents")
+        self._agents_btn.setObjectName("launch-btn")
+        self._agents_btn.setToolTip("Toggle agents panel — view and dispatch agents")
+        self._agents_btn.clicked.connect(self._toggle_agents_panel)
+        layout.addWidget(self._agents_btn)
 
         # Launch Claude button
         self._claude_btn = QPushButton("Claude")
@@ -618,6 +658,216 @@ class OpenKeelWindow(QMainWindow):
         self._history_entries.append({
             "time": ts, "action": action, "tier": tier, "command": command,
         })
+
+    # ----- Agents panel -----
+
+    _BOARD_URL = "http://127.0.0.1:8200"
+
+    def _build_agents_panel(self) -> QWidget:
+        """Build the collapsible right-side agents panel."""
+        panel = QWidget()
+        panel.setObjectName("agents-panel")
+        panel.setFixedWidth(300)
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        # Header
+        header = QHBoxLayout()
+        title = QLabel("AGENTS")
+        title.setStyleSheet(f"color: {self._accent}; font-size: 12px; font-weight: bold; letter-spacing: 2px;")
+        header.addWidget(title)
+        header.addStretch()
+
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setObjectName("history-toggle")
+        refresh_btn.clicked.connect(self._refresh_agents_panel)
+        header.addWidget(refresh_btn)
+
+        dispatch_btn = QPushButton("+ Dispatch")
+        dispatch_btn.setObjectName("launch-btn")
+        dispatch_btn.setFixedWidth(80)
+        dispatch_btn.clicked.connect(self._dispatch_task_from_gui)
+        header.addWidget(dispatch_btn)
+        layout.addLayout(header)
+
+        # Agent cards area
+        self._agents_cards_widget = QWidget()
+        self._agents_cards_layout = QVBoxLayout(self._agents_cards_widget)
+        self._agents_cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._agents_cards_layout.setSpacing(4)
+        self._agents_cards_layout.addStretch()
+        layout.addWidget(self._agents_cards_widget)
+
+        # Commentary feed
+        sep = QLabel("LIVE FEED")
+        sep.setStyleSheet(f"color: {self._accent}; font-size: 10px; font-weight: bold; letter-spacing: 1px; margin-top: 8px;")
+        layout.addWidget(sep)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        scroll.setMinimumHeight(150)
+
+        self._commentary_widget = QWidget()
+        self._commentary_layout = QVBoxLayout(self._commentary_widget)
+        self._commentary_layout.setContentsMargins(0, 0, 0, 0)
+        self._commentary_layout.setSpacing(2)
+        self._commentary_layout.addStretch()
+        scroll.setWidget(self._commentary_widget)
+        layout.addWidget(scroll, stretch=1)
+
+        # Agents panel refresh timer
+        self._agents_timer = QTimer(self)
+        self._agents_timer.timeout.connect(self._refresh_agents_panel)
+        # Only starts when panel is visible
+
+        return panel
+
+    def _toggle_agents_panel(self) -> None:
+        vis = not self._agents_panel.isVisible()
+        self._agents_panel.setVisible(vis)
+        if vis:
+            self._refresh_agents_panel()
+            self._agents_timer.start(15000)
+        else:
+            self._agents_timer.stop()
+
+    def _refresh_agents_panel(self) -> None:
+        """Fetch agent and commentary data from the board API in a background thread."""
+        def _fetch():
+            agents_data = []
+            commentary_data = []
+            try:
+                req = urllib.request.Request(f"{self._BOARD_URL}/api/agents")
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    agents_data = json.loads(resp.read())
+            except Exception:
+                pass
+            try:
+                req = urllib.request.Request(f"{self._BOARD_URL}/api/agent/commentary?limit=20")
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    commentary_data = json.loads(resp.read())
+            except Exception:
+                pass
+            QTimer.singleShot(0, lambda: self._update_agents_ui(agents_data, commentary_data))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _update_agents_ui(self, agents: list, commentary: list) -> None:
+        """Update the agents panel widgets (runs on main thread)."""
+        # Clear agent cards
+        while self._agents_cards_layout.count() > 1:
+            item = self._agents_cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not agents:
+            lbl = QLabel("No agents registered")
+            lbl.setStyleSheet(f"color: {TEXT_DIM}; padding: 8px;")
+            self._agents_cards_layout.insertWidget(0, lbl)
+        else:
+            for a in agents:
+                st = a.get("effective_status", "offline")
+                dot_colors = {"idle": "#22c55e", "busy": "#f59e0b", "stalled": "#ef4444", "offline": "#888888"}
+                dot = dot_colors.get(st, "#888888")
+                task_info = f"  →  #{a['current_task']}" if a.get("current_task") else ""
+                text = f"● {a['name']}  [{st}]{task_info}"
+                lbl = QLabel(text)
+                lbl.setStyleSheet(f"color: {dot}; font-size: 11px; font-family: monospace; padding: 2px 0;")
+                self._agents_cards_layout.insertWidget(self._agents_cards_layout.count() - 1, lbl)
+
+        # Clear commentary
+        while self._commentary_layout.count() > 1:
+            item = self._commentary_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not commentary:
+            lbl = QLabel("No commentary yet")
+            lbl.setStyleSheet(f"color: {TEXT_DIM}; padding: 4px; font-size: 10px;")
+            self._commentary_layout.insertWidget(0, lbl)
+        else:
+            for c in commentary:
+                ts = time.strftime("%H:%M", time.localtime(c.get("timestamp", 0)))
+                agent = c.get("agent", "?")
+                msg = c.get("message", "")
+                task_tag = f" #{c['task_id']}" if c.get("task_id") else ""
+                text = f"[{ts}] {agent}{task_tag}: {msg}"
+                lbl = QLabel(text)
+                lbl.setWordWrap(True)
+                lbl.setStyleSheet(f"color: {TEXT_LIGHT}; font-size: 10px; padding: 2px 0;")
+                self._commentary_layout.insertWidget(self._commentary_layout.count() - 1, lbl)
+
+    def _dispatch_task_from_gui(self) -> None:
+        """Open a dialog to create and assign a task."""
+        title, ok = QInputDialog.getText(self, "Dispatch Task", "Task title:")
+        if not ok or not title.strip():
+            return
+
+        # Get available agents
+        agents = []
+        try:
+            req = urllib.request.Request(f"{self._BOARD_URL}/api/agents")
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                agents = json.loads(resp.read())
+        except Exception:
+            pass
+
+        agent_names = [a["name"] for a in agents] if agents else []
+
+        if agent_names:
+            agent, ok2 = QInputDialog.getItem(
+                self, "Assign Agent", "Assign to:", ["(unassigned)"] + agent_names, 0, False
+            )
+            if not ok2:
+                return
+            if agent == "(unassigned)":
+                agent = ""
+        else:
+            agent = ""
+
+        # Create the task
+        def _create():
+            try:
+                payload = json.dumps({
+                    "title": title.strip(),
+                    "status": "todo" if not agent else "in_progress",
+                    "priority": "medium",
+                    "type": "task",
+                    "board": "default",
+                    "assigned_to": agent,
+                }).encode()
+                req = urllib.request.Request(
+                    f"{self._BOARD_URL}/api/task",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    result = json.loads(resp.read())
+                    task_id = result.get("id", "?")
+
+                # If assigned, also claim
+                if agent:
+                    claim = json.dumps({"agent": agent}).encode()
+                    req2 = urllib.request.Request(
+                        f"{self._BOARD_URL}/api/task/{task_id}/claim",
+                        data=claim,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    urllib.request.urlopen(req2, timeout=5)
+
+                QTimer.singleShot(0, lambda: self._status_msg.setText(
+                    f"Dispatched #{task_id}: {title.strip()[:40]}" + (f" → {agent}" if agent else "")
+                ))
+                QTimer.singleShot(0, self._refresh_agents_panel)
+            except Exception as e:
+                QTimer.singleShot(0, lambda: self._status_msg.setText(f"Dispatch failed: {e}"))
+
+        threading.Thread(target=_create, daemon=True).start()
 
     # ----- Overwatch -----
 
@@ -853,8 +1103,8 @@ class OpenKeelWindow(QMainWindow):
         import shutil
 
         shells: list[tuple[str, str]] = []
-        if shutil.which("powershell.exe"):
-            shells.append(("PowerShell", "powershell.exe"))
+        if shutil.which("bash"):
+            shells.append(("Bash", "bash"))
         if shutil.which("pwsh.exe") or shutil.which("pwsh"):
             shells.append(("PowerShell 7", "pwsh.exe"))
         if shutil.which("cmd.exe"):
@@ -864,7 +1114,7 @@ class OpenKeelWindow(QMainWindow):
         if shutil.which("wsl"):
             shells.append(("WSL", "wsl.exe"))
         if not shells:
-            shells.append(("PowerShell", "powershell.exe"))
+            shells.append(("Bash", "bash"))
         return shells
 
     def _on_profile_changed(self, text: str) -> None:
@@ -929,6 +1179,39 @@ class OpenKeelWindow(QMainWindow):
             "claude --dangerously-skip-permissions\r"
         )
         self._status_msg.setText("Launching Claude Code...")
+        self._terminal.setFocus()
+
+    def _launch_codex(self) -> None:
+        """Send codex launch command to the running terminal.
+
+        Reuses the same OpenKeel context injection path so profile/memory
+        context is prepared before Codex starts.
+        """
+        if not (self._terminal._pty and self._terminal._pty.isalive()):
+            return
+
+        try:
+            from openkeel.launch import inject_context
+            profile_name = self._profile_combo.currentText()
+            if not profile_name or profile_name == "(none)":
+                profile_name = "openkeel"
+
+            facts = []
+            if self._memoria_context:
+                for line in self._memoria_context.split("\n"):
+                    line = line.strip().lstrip("- ")
+                    if line:
+                        facts.append({"text": line})
+
+            inject_context(".", profile_name, facts)
+        except Exception:
+            pass
+
+        # Source nvm if codex isn't on PATH (installed via npm global)
+        self._terminal._pty.write(
+            "source ~/.nvm/nvm.sh 2>/dev/null; codex --dangerously-bypass-approvals-and-sandbox\r"
+        )
+        self._status_msg.setText("Launching Codex...")
         self._terminal.setFocus()
 
     def _on_mode_changed(self, text: str) -> None:
@@ -1385,6 +1668,7 @@ def main() -> None:
     parser.add_argument("--mode", "-m", help="Set operational mode (normal/lockdown/audit/etc)")
     parser.add_argument("--mission", help="Set active mission")
     parser.add_argument("--claude", action="store_true", help="Auto-launch Claude Code with --dangerously-skip-permissions")
+    parser.add_argument("--codex", action="store_true", help="Auto-launch Codex")
     parser.add_argument("--overwatch", action="store_true", help="Enable Overwatch agent monitoring on startup")
     args, qt_args = parser.parse_known_args()
 
@@ -1426,6 +1710,10 @@ def main() -> None:
     # Auto-launch Claude if requested
     if args.claude:
         QTimer.singleShot(1500, window._launch_claude)
+
+    # Auto-launch Codex if requested
+    if args.codex:
+        QTimer.singleShot(1500, window._launch_codex)
 
     sys.exit(app.exec())
 

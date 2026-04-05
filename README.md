@@ -117,6 +117,15 @@ openkeel mission list
 openkeel drift
     Run the drift detector manually. Compares current session state
     against the active mission and logs divergence.
+
+openkeel github-scout config
+    Print a sample GitHub Scout config.
+
+openkeel github-scout scan [--since-hours 24] [--limit 20]
+    Find newly created interesting GitHub repositories and remember seen hits.
+
+openkeel github-scout watch [--interval 900]
+    Poll GitHub continuously and surface new matching repositories.
 ```
 
 ---
@@ -204,6 +213,20 @@ hooks:
 ```
 
 Copy `constitution.example.yaml` to `~/.openkeel/constitution.yaml` and edit to match your environment.
+
+### GitHub Scout
+
+For continuous repository discovery:
+
+```bash
+cp github_scout.example.yaml ~/.openkeel/github_scout.yaml
+export GITHUB_TOKEN=ghp_your_token_here
+
+openkeel github-scout scan --since-hours 24 --limit 10
+openkeel github-scout watch --interval 900
+```
+
+Tune `include_topics`, `include_keywords`, `include_languages`, and `watch_owners` in `~/.openkeel/github_scout.yaml` to reflect the projects you care about right now. The scout keeps local state in `~/.openkeel/github_scout_state.json` so it only surfaces unseen matches.
 
 ---
 

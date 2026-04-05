@@ -194,6 +194,70 @@ CREATE TABLE IF NOT EXISTS task_links (
     page_id  INTEGER REFERENCES wiki_pages(id),
     PRIMARY KEY (task_id, page_id)
 );
+
+-- -----------------------------------------------------------------------
+-- Project War Rooms: persistent project state pages
+-- -----------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS war_rooms (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project     TEXT    UNIQUE NOT NULL,
+    status      TEXT    DEFAULT 'active',           -- active | paused | archived
+    summary     TEXT    DEFAULT '',                  -- current state summary
+    blockers    TEXT    DEFAULT '',                  -- current blockers (newline separated)
+    key_files   TEXT    DEFAULT '',                  -- important files (newline separated)
+    decisions   TEXT    DEFAULT '',                  -- key decisions log
+    notes       TEXT    DEFAULT '',                  -- freeform notes
+    created_at  REAL    NOT NULL,
+    updated_at  REAL    NOT NULL
+);
+
+-- -----------------------------------------------------------------------
+-- Activity Feed: cross-session timeline of all agent work
+-- -----------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS activity_feed (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp   REAL    NOT NULL,
+    agent       TEXT    DEFAULT '',                  -- agent name/session
+    project     TEXT    DEFAULT '',
+    action_type TEXT    DEFAULT 'update',            -- update | fix | deploy | research | decision | handoff
+    summary     TEXT    NOT NULL,
+    details     TEXT    DEFAULT '',
+    task_id     INTEGER DEFAULT NULL REFERENCES tasks(id)
+);
+
+-- -----------------------------------------------------------------------
+-- Handoff Packets: shift change briefings between agents
+-- -----------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS handoffs (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    project         TEXT    NOT NULL,
+    from_agent      TEXT    DEFAULT '',
+    to_agent        TEXT    DEFAULT '',
+    timestamp       REAL    NOT NULL,
+    status_summary  TEXT    NOT NULL,                -- what was done
+    in_progress     TEXT    DEFAULT '',              -- what's mid-flight
+    blocked_on      TEXT    DEFAULT '',              -- what's blocked
+    next_steps      TEXT    DEFAULT '',              -- what to do next
+    files_touched   TEXT    DEFAULT '',              -- files modified
+    key_decisions   TEXT    DEFAULT '',              -- decisions made
+    warnings        TEXT    DEFAULT '',              -- gotchas for next agent
+    picked_up       INTEGER DEFAULT 0               -- 1 when next agent reads it
+);
+
+-- -----------------------------------------------------------------------
+-- Directives: queued instructions for agents
+-- -----------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS directives (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_agent TEXT   DEFAULT '',                  -- specific agent or empty=any
+    project     TEXT    DEFAULT '',
+    priority    TEXT    DEFAULT 'normal',            -- normal | urgent
+    message     TEXT    NOT NULL,
+    created_at  REAL    NOT NULL,
+    picked_up   INTEGER DEFAULT 0,
+    picked_up_by TEXT   DEFAULT '',
+    picked_up_at REAL   DEFAULT NULL
+);
 """
 
 

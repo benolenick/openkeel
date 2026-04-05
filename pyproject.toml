@@ -32,11 +32,15 @@ gui = [
     "pywinpty>=2.0",
     "pyte>=0.8",
 ]
+web = [
+    "flask>=3.0",
+]
 
 [project.scripts]
 openkeel = "openkeel.cli:main"
 openkeel-exec = "openkeel.exec:main"
 openkeel-terminal = "openkeel.gui.app:main"
+openkeel-board = "openkeel.integrations.kanban_web:main"
 
 [tool.setuptools.packages.find]
 include = ["openkeel*"]

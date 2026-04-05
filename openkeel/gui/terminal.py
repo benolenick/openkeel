@@ -5,11 +5,15 @@ from __future__ import annotations
 import threading
 
 import pyte
-from winpty import PtyProcess
+import sys
+if sys.platform == 'win32':
+    from winpty import PtyProcess
+else:
+    from ptyprocess import PtyProcessUnicode as PtyProcess
 
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtGui import QAction, QColor, QFont, QFontMetrics, QPainter
+from PySide6.QtWidgets import QApplication, QMenu, QWidget
 
 # ---------------------------------------------------------------------------
 # Color tables
@@ -177,8 +181,14 @@ class TerminalWidget(QWidget):
     # ----- PTY management -----
 
     def _spawn(self) -> None:
+        import os
+        env = os.environ.copy()
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
         self._pty = PtyProcess.spawn(
-            self._shell, dimensions=(self._rows, self._cols)
+            self._shell if isinstance(self._shell, list) else [self._shell],
+            dimensions=(self._rows, self._cols),
+            env=env,
         )
         self._reader_alive = True
         t = threading.Thread(target=self._reader_loop, daemon=True)
@@ -202,8 +212,10 @@ class TerminalWidget(QWidget):
 
     def _on_data(self, data: str) -> None:
         self._stream.feed(data)
-        # New output resets scroll to bottom
-        self._scroll_offset = 0
+        # Only auto-scroll to bottom if user isn't scrolled up
+        if self._scroll_offset == 0:
+            pass  # already at bottom, stay there
+        # If user is scrolled up, leave them where they are
         # Feed raw text to any attached overwatch
         if self._overwatch_callback:
             try:
@@ -301,28 +313,20 @@ class TerminalWidget(QWidget):
                         p.fillRect(x, y, cell_w, cell_h, bg_q)
 
                     if char.data and char.data != " ":
-                        font = p.font()
-                        changed = False
-                        if char.bold and not font.bold():
-                            font.setBold(True)
-                            changed = True
-                        if char.italics and not font.italic():
-                            font.setItalic(True)
-                            changed = True
-                        if char.underscore and not font.underline():
-                            font.setUnderline(True)
-                            changed = True
-                        if changed:
-                            p.setFont(font)
+                        needs_style = char.bold or char.italics
+                        if needs_style:
+                            styled = QFont(self._font)
+                            if char.bold:
+                                styled.setBold(True)
+                            if char.italics:
+                                styled.setItalic(True)
+                            p.setFont(styled)
 
                         p.setPen(QColor(fg))
                         p.drawText(x, y + ascent, char.data)
 
-                        if changed:
-                            font.setBold(False)
-                            font.setItalic(False)
-                            font.setUnderline(False)
-                            p.setFont(font)
+                        if needs_style:
+                            p.setFont(self._font)
 
         # Cursor (only when not scrolled up)
         if self._scroll_offset == 0 and self._cursor_visible and screen.cursor:
@@ -452,6 +456,26 @@ class TerminalWidget(QWidget):
                 self._sel_start = None
                 self._sel_end = None
                 self.update()
+
+    def contextMenuEvent(self, event) -> None:
+        """Right-click context menu for Copy / Paste."""
+        menu = QMenu(self)
+        menu.setStyleSheet(
+            "QMenu { background: #1a1a1a; color: #d3d7cf; border: 1px solid #333; }"
+            "QMenu::item:selected { background: #334466; }"
+        )
+        copy_act = menu.addAction("Copy")
+        paste_act = menu.addAction("Paste")
+        has_sel = bool(self._sel_start and self._sel_end and self._sel_start != self._sel_end)
+        copy_act.setEnabled(has_sel)
+        paste_act.setEnabled(bool(QApplication.clipboard().text()))
+        action = menu.exec(event.globalPos())
+        if action == copy_act:
+            self._copy_selection()
+        elif action == paste_act:
+            text = QApplication.clipboard().text()
+            if text and self._pty and self._pty.isalive():
+                self._pty.write(text)
 
     def _get_selected_text(self) -> str:
         """Extract the text within the current selection."""

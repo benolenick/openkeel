@@ -15,6 +15,7 @@ phase        next|show  Phase management (full mode).
 journal      add|show|search|flush  Session journal.
 wiki         add|show|list|categories|search|link|from-journal  Knowledge wiki.
 task         add|show|edit|move|assign|delete|list|search|link|from-journal|stats  Task management.
+convo        list|show|send|new|delete|model  Conversation / topic channel management.
 board        [project] [--board]  Kanban board view.
 serve        Start the embeddings server.
 serve-status Check embeddings server status.
@@ -31,6 +32,8 @@ import os
 import re
 import shutil
 import sys
+import time
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -106,6 +109,17 @@ def _get_wiki():
 def _get_kanban():
     from openkeel.integrations.kanban import Kanban
     return Kanban()
+
+
+def _import_github_scout():
+    from openkeel.integrations.github_scout import (
+        DEFAULT_CONFIG_PATH,
+        GitHubScout,
+        GitHubScoutConfig,
+        example_config_text,
+        format_hits,
+    )
+    return DEFAULT_CONFIG_PATH, GitHubScout, GitHubScoutConfig, example_config_text, format_hits
 
 
 # ---------------------------------------------------------------------------
@@ -1969,6 +1983,169 @@ def cmd_task_stats(args: argparse.Namespace) -> None:
         print(f"  Assigned: {', '.join(parts)}")
 
 
+# ---------------------------------------------------------------------------
+# Conversation (topic channel) commands
+# ---------------------------------------------------------------------------
+
+_BOARD_URL = "http://127.0.0.1:8200"
+
+
+def _convo_api(path: str, method: str = "GET", data: dict | None = None) -> Any:
+    """Call the Command Board API. Raises on failure."""
+    url = f"{_BOARD_URL}{path}"
+    body = json.dumps(data).encode() if data else None
+    req = urllib.request.Request(
+        url, data=body, method=method,
+        headers={"Content-Type": "application/json"} if body else {},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.URLError as e:
+        print(f"Error: Cannot reach Command Board at {_BOARD_URL}")
+        print("  Make sure it's running: openkeel board-web")
+        sys.exit(1)
+
+
+def _resolve_topic(name_or_id: str) -> dict:
+    """Resolve a topic by ID or name (case-insensitive prefix match)."""
+    topics = _convo_api("/api/topics")
+    # Try numeric ID first
+    try:
+        tid = int(name_or_id)
+        for t in topics:
+            if t["id"] == tid:
+                return t
+    except ValueError:
+        pass
+    # Case-insensitive name match (prefix)
+    lower = name_or_id.lower()
+    for t in topics:
+        if t["name"].lower() == lower:
+            return t
+    for t in topics:
+        if t["name"].lower().startswith(lower):
+            return t
+    print(f"Error: No conversation matching '{name_or_id}'")
+    print("Available conversations:")
+    for t in topics:
+        print(f"  #{t['id']}  {t['name']}")
+    sys.exit(1)
+
+
+def cmd_convo_list(args: argparse.Namespace) -> None:
+    """List active conversations/topic channels."""
+    topics = _convo_api("/api/topics")
+    if not topics:
+        print("No conversations. Create one: openkeel convo new \"Topic Name\"")
+        return
+    for t in topics:
+        pin = " [pinned]" if t.get("pinned") else ""
+        model = t.get("model", "sonnet")
+        last = (t.get("last_message") or "")[:80].replace("\n", " ")
+        desc = f" — {t['description']}" if t.get("description") else ""
+        print(f"  #{t['id']}  {t['name']}{desc}  ({model}){pin}")
+        if last:
+            print(f"        last: {last}...")
+
+
+def cmd_convo_show(args: argparse.Namespace) -> None:
+    """Show messages in a conversation."""
+    topic = _resolve_topic(args.topic)
+    limit = getattr(args, "limit", 20)
+    msgs = _convo_api(f"/api/topics/{topic['id']}/messages?limit={limit}")
+    print(f"── {topic['name']} (#{topic['id']}, model={topic.get('model','sonnet')}) ──")
+    if topic.get("description"):
+        print(f"   {topic['description']}")
+    print()
+    if not msgs:
+        print("  (no messages yet)")
+        return
+    for m in msgs:
+        role = m["role"]
+        ts = datetime.fromtimestamp(m["timestamp"]).strftime("%m/%d %H:%M") if m.get("timestamp") else ""
+        agent = f" [{m['agent_name']}]" if m.get("agent_name") else ""
+        prefix = {"user": "You", "assistant": "Claude", "system": "System", "agent": "Agent"}.get(role, role)
+        print(f"  {ts}  {prefix}{agent}:")
+        for line in m["content"].split("\n"):
+            print(f"    {line}")
+        print()
+
+
+def cmd_convo_send(args: argparse.Namespace) -> None:
+    """Send a message to a conversation and stream Claude's response."""
+    topic = _resolve_topic(args.topic)
+    message = " ".join(args.message) if isinstance(args.message, list) else args.message
+    if not message.strip():
+        print("Error: Empty message.")
+        return
+
+    topic_id = topic["id"]
+    print(f"→ {topic['name']} (#{topic_id}, {topic.get('model','sonnet')})")
+    print(f"  You: {message}")
+    print()
+
+    # Use the streaming chat endpoint
+    url = f"{_BOARD_URL}/api/topics/{topic_id}/chat"
+    body = json.dumps({"message": message}).encode()
+    req = urllib.request.Request(
+        url, data=body, method="POST",
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            full_text = ""
+            print("  Claude: ", end="", flush=True)
+            for raw_line in resp:
+                line = raw_line.decode().strip()
+                if not line.startswith("data: "):
+                    continue
+                payload = line[6:]
+                try:
+                    event = json.loads(payload)
+                except json.JSONDecodeError:
+                    continue
+                if "text" in event:
+                    chunk = event["text"]
+                    print(chunk, end="", flush=True)
+                    full_text += chunk
+                elif "error" in event:
+                    print(f"\n  [error: {event['error']}]")
+                elif event.get("done"):
+                    break
+            print()  # final newline
+    except urllib.error.URLError as e:
+        print(f"Error: Cannot reach Command Board — {e}")
+        sys.exit(1)
+
+
+def cmd_convo_new(args: argparse.Namespace) -> None:
+    """Create a new conversation/topic channel."""
+    name = args.name
+    desc = getattr(args, "desc", "") or ""
+    project = getattr(args, "project", "") or ""
+    model = getattr(args, "model", "sonnet") or "sonnet"
+    result = _convo_api("/api/topics", method="POST", data={
+        "name": name, "description": desc, "project": project, "model": model,
+    })
+    print(f"Created conversation #{result['id']}: {result['name']}")
+
+
+def cmd_convo_delete(args: argparse.Namespace) -> None:
+    """Archive a conversation."""
+    topic = _resolve_topic(args.topic)
+    _convo_api(f"/api/topics/{topic['id']}", method="DELETE")
+    print(f"Archived conversation #{topic['id']}: {topic['name']}")
+
+
+def cmd_convo_model(args: argparse.Namespace) -> None:
+    """Switch the model for a conversation."""
+    topic = _resolve_topic(args.topic)
+    model = args.model
+    _convo_api(f"/api/topics/{topic['id']}/model", method="POST", data={"model": model})
+    print(f"#{topic['id']} {topic['name']} → {model}")
+
+
 def cmd_board(args: argparse.Namespace) -> None:
     """Show kanban board column view."""
     kanban = _get_kanban()
@@ -2053,6 +2230,49 @@ def cmd_board_list(args: argparse.Namespace) -> None:
         print(f"  {b['board']:<20} {b['count']} tasks  ({statuses})")
 
 
+def cmd_board_web(args: argparse.Namespace) -> None:
+    """Start the kanban web UI (Flask)."""
+    try:
+        from openkeel.integrations.kanban_web import app
+    except ImportError:
+        print("Flask is required: pip install flask")
+        return
+    host = getattr(args, "host", "0.0.0.0")
+    port = getattr(args, "port", 8200)
+    debug = getattr(args, "debug", False)
+    print(f"OpenKeel Kanban Board -> http://{host}:{port}")
+    app.run(host=host, port=port, debug=debug)
+
+
+# ---------------------------------------------------------------------------
+# Duo (Director/Operator two-agent system)
+# ---------------------------------------------------------------------------
+
+
+def cmd_duo(args: argparse.Namespace) -> None:
+    """Launch the Director/Operator two-agent system."""
+    from openkeel.agents.duo import run_duo
+
+    goal = getattr(args, "goal", "") or ""
+    if not getattr(args, "operator_only", False) and not goal:
+        print("Error: A goal is required unless using --operator-only")
+        sys.exit(1)
+
+    run_duo(
+        goal=goal,
+        working_dir=getattr(args, "working_dir", ""),
+        model=getattr(args, "model", "sonnet"),
+        director_only=getattr(args, "director_only", False),
+        operator_only=getattr(args, "operator_only", False),
+        poll_interval=getattr(args, "poll", 30),
+        operator_model=getattr(args, "operator_model", ""),
+        no_critic=getattr(args, "no_critic", False),
+        test_commands=getattr(args, "test_commands", []),
+        test_command=getattr(args, "test_command", ""),
+        max_cycles=getattr(args, "max_cycles", 0),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Context refresh
 # ---------------------------------------------------------------------------
@@ -2128,6 +2348,69 @@ def cmd_context_refresh(args: argparse.Namespace) -> None:
     journal.close()
     wiki.close()
     kanban.close()
+
+
+# ---------------------------------------------------------------------------
+# GitHub Scout
+# ---------------------------------------------------------------------------
+
+
+def cmd_github_scout_scan(args: argparse.Namespace) -> None:
+    """Scan GitHub for newly created interesting repositories."""
+    _, GitHubScout, GitHubScoutConfig, _, format_hits = _import_github_scout()
+    config = GitHubScoutConfig.from_file(getattr(args, "config", ""))
+    scout = GitHubScout(config)
+    hits = scout.scan(
+        since_hours=getattr(args, "since_hours", None),
+        limit=getattr(args, "limit", 20),
+        min_score=getattr(args, "min_score", None),
+        include_seen=getattr(args, "include_seen", False),
+    )
+
+    if getattr(args, "json", False):
+        print(json.dumps(hits, indent=2))
+    else:
+        print(format_hits(hits))
+
+    if hits and not getattr(args, "include_seen", False):
+        scout.mark_seen(hits)
+
+
+def cmd_github_scout_watch(args: argparse.Namespace) -> None:
+    """Run GitHub Scout continuously."""
+    _, GitHubScout, GitHubScoutConfig, _, format_hits = _import_github_scout()
+    config = GitHubScoutConfig.from_file(getattr(args, "config", ""))
+    scout = GitHubScout(config)
+
+    interval = getattr(args, "interval", None) or config.interval_seconds
+    since_hours = getattr(args, "since_hours", None)
+    limit = getattr(args, "limit", 20)
+    min_score = getattr(args, "min_score", None)
+
+    print(f"GitHub Scout watching every {interval}s")
+    while True:
+        hits = scout.scan(
+            since_hours=since_hours,
+            limit=limit,
+            min_score=min_score,
+            include_seen=False,
+        )
+        if hits:
+            print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]")
+            print(format_hits(hits))
+            for repo in hits:
+                scout.notify(repo)
+            scout.mark_seen(hits)
+        else:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] no new matches")
+        time.sleep(interval)
+
+
+def cmd_github_scout_config(args: argparse.Namespace) -> None:
+    """Print the sample GitHub Scout config."""
+    default_config_path, _, _, example_config_text, _ = _import_github_scout()
+    print(f"# Save as {default_config_path}")
+    print(example_config_text())
 
 
 # ---------------------------------------------------------------------------
@@ -2500,6 +2783,41 @@ def main() -> None:
     p_tstats.add_argument("-p", "--project", default="", help="Filter by project.")
     p_tstats.set_defaults(func=cmd_task_stats)
 
+    # -- convo (topic channels / conversations) --------------------------------
+
+    p_convo = sub.add_parser("convo", help="Conversation / topic channel management.")
+    convo_sub = p_convo.add_subparsers(dest="convo_command", metavar="<subcommand>")
+    convo_sub.required = True
+
+    p_cv_list = convo_sub.add_parser("list", help="List active conversations.")
+    p_cv_list.set_defaults(func=cmd_convo_list)
+
+    p_cv_show = convo_sub.add_parser("show", help="Show conversation messages.")
+    p_cv_show.add_argument("topic", help="Topic ID or name.")
+    p_cv_show.add_argument("-n", "--limit", type=int, default=20, help="Number of messages.")
+    p_cv_show.set_defaults(func=cmd_convo_show)
+
+    p_cv_send = convo_sub.add_parser("send", help="Send a message and get Claude's response.")
+    p_cv_send.add_argument("topic", help="Topic ID or name.")
+    p_cv_send.add_argument("message", nargs="+", help="Message to send.")
+    p_cv_send.set_defaults(func=cmd_convo_send)
+
+    p_cv_new = convo_sub.add_parser("new", help="Create a new conversation.")
+    p_cv_new.add_argument("name", help="Conversation name.")
+    p_cv_new.add_argument("-d", "--desc", default="", help="Description.")
+    p_cv_new.add_argument("-p", "--project", default="", help="Project name.")
+    p_cv_new.add_argument("-m", "--model", default="sonnet", choices=["sonnet", "opus"], help="Model (default: sonnet).")
+    p_cv_new.set_defaults(func=cmd_convo_new)
+
+    p_cv_del = convo_sub.add_parser("delete", help="Archive a conversation.")
+    p_cv_del.add_argument("topic", help="Topic ID or name.")
+    p_cv_del.set_defaults(func=cmd_convo_delete)
+
+    p_cv_model = convo_sub.add_parser("model", help="Switch the model for a conversation.")
+    p_cv_model.add_argument("topic", help="Topic ID or name.")
+    p_cv_model.add_argument("model", choices=["sonnet", "opus"], help="Model to use.")
+    p_cv_model.set_defaults(func=cmd_convo_model)
+
     # -- board -----------------------------------------------------------------
 
     p_board = sub.add_parser("board", help="Kanban board view.")
@@ -2510,6 +2828,14 @@ def main() -> None:
     p_board_list = sub.add_parser("board-list", help="List all boards.")
     p_board_list.add_argument("-p", "--project", default="", help="Filter by project.")
     p_board_list.set_defaults(func=cmd_board_list)
+
+    # -- board-web (Flask kanban UI) --------------------------------------------
+
+    p_board_web = sub.add_parser("board-web", help="Start the kanban web UI.")
+    p_board_web.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1).")
+    p_board_web.add_argument("--port", type=int, default=8200, help="Port (default: 8200).")
+    p_board_web.add_argument("--debug", action="store_true", help="Flask debug mode.")
+    p_board_web.set_defaults(func=cmd_board_web)
 
     # -- serve (embeddings server) ---------------------------------------------
 
@@ -2523,6 +2849,22 @@ def main() -> None:
     p_reindex = sub.add_parser("reindex", help="Rebuild all embeddings from journal + wiki.")
     p_reindex.set_defaults(func=cmd_reindex)
 
+    # -- duo (Director/Operator two-agent system) ------------------------------
+
+    p_duo = sub.add_parser("duo", help="Launch Director/Operator two-agent system.")
+    p_duo.add_argument("goal", nargs="?", default="", help="Goal for the Director to plan and execute.")
+    p_duo.add_argument("-d", "--working-dir", default="", help="Working directory for the Operator.")
+    p_duo.add_argument("-m", "--model", default="sonnet", help="Model for Director (default: sonnet).")
+    p_duo.add_argument("--operator-model", default="", help="Model for Operator (default: same as Director).")
+    p_duo.add_argument("--director-only", action="store_true", help="Only run the Director.")
+    p_duo.add_argument("--operator-only", action="store_true", help="Only run the Operator (waits for directives).")
+    p_duo.add_argument("--no-critic", action="store_true", help="Disable the Critic quality gate.")
+    p_duo.add_argument("--test", action="append", dest="test_commands", default=[], help="Test command for Critic per-step (repeatable).")
+    p_duo.add_argument("--test-command", default="", help="End-of-cycle test command (e.g. 'bash run_visual.sh').")
+    p_duo.add_argument("--max-cycles", type=int, default=0, help="Max improvement cycles (0 = infinite).")
+    p_duo.add_argument("--poll", type=int, default=30, help="Director poll interval in seconds (default: 30).")
+    p_duo.set_defaults(func=cmd_duo)
+
     # -- context ---------------------------------------------------------------
 
     p_context = sub.add_parser("context", help="Context management.")
@@ -2532,6 +2874,32 @@ def main() -> None:
     p_ctx_refresh = context_sub.add_parser("refresh", help="Rebuild session_context.json.")
     p_ctx_refresh.add_argument("--project", "-p", default="", help="Project name for context.")
     p_ctx_refresh.set_defaults(func=cmd_context_refresh)
+
+    # -- github-scout ---------------------------------------------------------
+
+    p_gs = sub.add_parser("github-scout", help="Discover newly created interesting GitHub repositories.")
+    gs_sub = p_gs.add_subparsers(dest="github_scout_command", metavar="<subcommand>")
+    gs_sub.required = True
+
+    p_gs_scan = gs_sub.add_parser("scan", help="Run a one-shot discovery scan.")
+    p_gs_scan.add_argument("--config", default="", help="Path to scout config YAML.")
+    p_gs_scan.add_argument("--since-hours", type=int, default=None, help="Only consider repos created within this many hours.")
+    p_gs_scan.add_argument("--limit", "-n", type=int, default=20, help="Max matches to print.")
+    p_gs_scan.add_argument("--min-score", type=float, default=None, help="Override minimum interestingness score.")
+    p_gs_scan.add_argument("--include-seen", action="store_true", help="Include repos already recorded in local state.")
+    p_gs_scan.add_argument("--json", action="store_true", help="Emit JSON instead of text.")
+    p_gs_scan.set_defaults(func=cmd_github_scout_scan)
+
+    p_gs_watch = gs_sub.add_parser("watch", help="Poll GitHub continuously and print new matches.")
+    p_gs_watch.add_argument("--config", default="", help="Path to scout config YAML.")
+    p_gs_watch.add_argument("--since-hours", type=int, default=None, help="Only consider repos created within this many hours.")
+    p_gs_watch.add_argument("--interval", type=int, default=None, help="Polling interval in seconds.")
+    p_gs_watch.add_argument("--limit", "-n", type=int, default=20, help="Max matches per poll.")
+    p_gs_watch.add_argument("--min-score", type=float, default=None, help="Override minimum interestingness score.")
+    p_gs_watch.set_defaults(func=cmd_github_scout_watch)
+
+    p_gs_config = gs_sub.add_parser("config", help="Print a sample config file.")
+    p_gs_config.set_defaults(func=cmd_github_scout_config)
 
     args = parser.parse_args()
 

@@ -56,7 +56,7 @@ GOVERNANCE_MODES = [
     "Normal", "Babysit", "Stakeout", "Lockdown", "Audit", "Pair", "Training",
 ]
 
-SHELL_OPTIONS = ["PowerShell", "PowerShell 7", "CMD", "Bash", "WSL"]
+SHELL_OPTIONS = ["Bash", "sh", "zsh"]
 
 DEFAULTS = {
     "theme_color_name": "Neon Orange",
@@ -68,7 +68,7 @@ DEFAULTS = {
     "default_mode": "Normal",
     "memoria_endpoint": "http://127.0.0.1:8000",
     "memoria_enabled": True,
-    "default_shell": "PowerShell",
+    "default_shell": "Bash",
     "startup_command": "",
 }
 
