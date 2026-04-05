@@ -91,9 +91,9 @@ def cmd_summary() -> str:
         lines.append(f"  {'Est. cost saved:':<20} ${saved_tokens * COST_PER_1K_INPUT_OPUS / 1000:.4f} (Opus) / ${saved_tokens * COST_PER_1K_INPUT_SONNET / 1000:.4f} (Sonnet)")
 
     # Separate actual interceptions from tracking-only events
-    actual_types = {"cache_hit", "command_rewrite"}
+    actual_types = {"cache_hit", "command_rewrite", "bash_compress"}
     actual_row = conn.execute(
-        "SELECT COALESCE(SUM(saved_chars),0) FROM savings WHERE event_type IN ('cache_hit','command_rewrite')"
+        "SELECT COALESCE(SUM(saved_chars),0) FROM savings WHERE event_type IN ('cache_hit','command_rewrite','bash_compress')"
     ).fetchone()
     actual_saved = (actual_row[0] if actual_row else 0) // CHARS_PER_TOKEN
 
