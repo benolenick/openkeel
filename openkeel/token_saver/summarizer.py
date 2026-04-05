@@ -12,8 +12,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-OLLAMA_URL = os.environ.get("TOKEN_SAVER_OLLAMA_URL", "http://127.0.0.1:11447")
-MODEL = os.environ.get("TOKEN_SAVER_MODEL", "qwen3:8b")
+OLLAMA_URL = os.environ.get("TOKEN_SAVER_OLLAMA_URL", "http://127.0.0.1:11434")
+MODEL = os.environ.get("TOKEN_SAVER_MODEL", "qwen2.5-coder:3b")
 TIMEOUT = int(os.environ.get("TOKEN_SAVER_TIMEOUT", "30"))
 
 
@@ -59,18 +59,43 @@ def is_available() -> bool:
 def summarize_file(content: str, file_path: str = "", max_lines: int = 15) -> str:
     """Summarize a source file to ~15 lines."""
     ext = file_path.rsplit(".", 1)[-1] if "." in file_path else ""
+
+    # Extract structure hints for the model
+    lines = content.split("\n")
+    line_count = len(lines)
+
+    # Quick structural extraction: classes, functions, top-level names
+    structure_hints = []
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith(("class ", "def ", "async def ")):
+            structure_hints.append(f"  L{i+1}: {stripped[:100]}")
+        if len(structure_hints) >= 30:
+            break
+
+    structure_block = "\n".join(structure_hints[:25]) if structure_hints else "(no classes/functions found)"
+
     system = (
-        "You are a code summarizer. Be extremely terse. "
-        "Output ONLY the summary, no preamble."
+        "You are a code summarizer. Output ONLY plain text, NO code blocks, NO markdown fences. "
+        "Be extremely terse. Use bullet points."
     )
     prompt = (
-        f"Summarize this {ext} file in {max_lines} lines or fewer. "
-        f"Include: purpose, key functions/classes, imports, notable patterns.\n"
+        f"Summarize this {ext} file ({line_count} lines) in {max_lines} bullet points.\n"
         f"File: {file_path}\n\n"
-        f"{content[:8000]}"
+        f"Structure:\n{structure_block}\n\n"
+        f"First 120 lines:\n{chr(10).join(lines[:120])}\n"
     )
     result = _ollama_generate(prompt, system=system, max_tokens=400)
-    return result.strip() if result else ""
+    if not result:
+        return ""
+    # Strip any markdown fences the model might still emit
+    result = result.strip()
+    if result.startswith("```"):
+        result = "\n".join(
+            line for line in result.split("\n")
+            if not line.strip().startswith("```")
+        )
+    return result.strip()
 
 
 def filter_output(command: str, output: str, max_lines: int = 30) -> str:
