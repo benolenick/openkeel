@@ -23,9 +23,17 @@ from pathlib import Path
 
 DB_PATH = Path.home() / ".openkeel" / "token_ledger.db"
 CHARS_PER_TOKEN = 4
-# Anthropic pricing: ~$15/M input tokens for Opus, ~$3/M for Sonnet
-COST_PER_1K_INPUT_OPUS = 0.015
-COST_PER_1K_INPUT_SONNET = 0.003
+
+# Real pricing from pricing.py
+try:
+    from openkeel.token_saver.pricing import MODELS, estimate_savings, format_pricing_table
+    COST_PER_1K_INPUT_OPUS = MODELS["claude-opus-4"].input_per_1m / 1000
+    COST_PER_1K_INPUT_SONNET = MODELS["claude-sonnet-4"].input_per_1m / 1000
+    _HAS_PRICING = True
+except ImportError:
+    COST_PER_1K_INPUT_OPUS = 0.015
+    COST_PER_1K_INPUT_SONNET = 0.003
+    _HAS_PRICING = False
 
 
 def _get_db() -> sqlite3.Connection | None:
@@ -73,7 +81,14 @@ def cmd_summary() -> str:
     lines.append(f"  {'Tokens processed:':<20} {orig_tokens:,}")
     lines.append(f"  {'Tokens saved:':<20} {saved_tokens:,}")
     lines.append(f"  {'Savings rate:':<20} {pct}%")
-    lines.append(f"  {'Est. cost saved:':<20} ${saved_tokens * COST_PER_1K_INPUT_OPUS / 1000:.4f} (Opus) / ${saved_tokens * COST_PER_1K_INPUT_SONNET / 1000:.4f} (Sonnet)")
+
+    if _HAS_PRICING:
+        savings = estimate_savings(saved_tokens)
+        lines.append(f"\n  ESTIMATED COST SAVED (input tokens avoided):")
+        for model_name, cost in sorted(savings.items(), key=lambda x: -x[1]):
+            lines.append(f"    {model_name:<30} ${cost:.4f}")
+    else:
+        lines.append(f"  {'Est. cost saved:':<20} ${saved_tokens * COST_PER_1K_INPUT_OPUS / 1000:.4f} (Opus) / ${saved_tokens * COST_PER_1K_INPUT_SONNET / 1000:.4f} (Sonnet)")
 
     # Breakdown by event type
     lines.append(f"\n  BY EVENT TYPE")
@@ -257,10 +272,16 @@ def main():
     parser.add_argument("--daily", action="store_true", help="Daily breakdown")
     parser.add_argument("--live", action="store_true", help="Live tail (watch mode)")
     parser.add_argument("--export", action="store_true", help="CSV export to stdout")
+    parser.add_argument("--pricing", action="store_true", help="Show model pricing table")
     parser.add_argument("--limit", type=int, default=30, help="Max events to show")
     args = parser.parse_args()
 
-    if args.live:
+    if args.pricing:
+        if _HAS_PRICING:
+            print(format_pricing_table())
+        else:
+            print("Pricing module not available.")
+    elif args.live:
         cmd_live()
     elif args.events:
         print(cmd_events(args.limit))
