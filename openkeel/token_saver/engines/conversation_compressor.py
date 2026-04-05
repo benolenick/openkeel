@@ -160,7 +160,7 @@ def _llm_compress(existing_summary: str, new_turns: str) -> str:
     )
     prompt = f"{context}Recent activity:\n{new_turns}"
 
-    result = summarizer._ollama_generate(prompt, system=system, max_tokens=300)
+    result = summarizer.ollama_generate(prompt, system=system, max_tokens=300)
     return result.strip() if result else ""
 
 

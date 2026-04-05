@@ -17,7 +17,7 @@ MODEL = os.environ.get("TOKEN_SAVER_MODEL", "qwen2.5-coder:3b")
 TIMEOUT = int(os.environ.get("TOKEN_SAVER_TIMEOUT", "30"))
 
 
-def _ollama_generate(prompt: str, system: str = "", max_tokens: int = 512) -> str:
+def ollama_generate(prompt: str, system: str = "", max_tokens: int = 512) -> str:
     """Send a generate request to Ollama. Returns empty string on failure."""
     full_prompt = f"{system}\n\n{prompt}" if system else prompt
     payload = json.dumps({
@@ -85,7 +85,7 @@ def summarize_file(content: str, file_path: str = "", max_lines: int = 15) -> st
         f"Structure:\n{structure_block}\n\n"
         f"First 120 lines:\n{chr(10).join(lines[:120])}\n"
     )
-    result = _ollama_generate(prompt, system=system, max_tokens=400)
+    result = ollama_generate(prompt, system=system, max_tokens=400)
     if not result:
         return ""
     # Strip any markdown fences the model might still emit
@@ -112,7 +112,7 @@ def filter_output(command: str, output: str, max_lines: int = 30) -> str:
         f"Filter this output to the most relevant {max_lines} lines:\n\n"
         f"{output[:6000]}"
     )
-    result = _ollama_generate(prompt, system=system, max_tokens=600)
+    result = ollama_generate(prompt, system=system, max_tokens=600)
     return result.strip() if result else output
 
 
@@ -123,7 +123,7 @@ def classify_task(description: str) -> dict[str, Any]:
         'Format: {"difficulty": "trivial|moderate|complex", "type": "summarize|classify|review|edit|debug|architect|research", "local_capable": true/false, "reason": "brief reason"}'
     )
     prompt = f"Classify this coding task:\n{description[:2000]}"
-    result = _ollama_generate(prompt, system=system, max_tokens=150)
+    result = ollama_generate(prompt, system=system, max_tokens=150)
     if not result:
         return {"difficulty": "complex", "local_capable": False, "reason": "llm unavailable"}
 
@@ -156,5 +156,5 @@ def extract_relevant_lines(content: str, query: str, max_lines: int = 50) -> str
         f"Extract the lines relevant to this query (max {max_lines} lines):\n\n"
         f"{content[:8000]}"
     )
-    result = _ollama_generate(prompt, system=system, max_tokens=800)
+    result = ollama_generate(prompt, system=system, max_tokens=800)
     return result.strip() if result else content[:max_lines * 80]

@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""PostToolUse hook for token saver — all engines engaged.
+"""PostToolUse hook for token saver — observation + caching layer.
 
 Runs after every tool call to:
-  1. Cache file reads for future summarization
-  2. Compress large outputs (Bash, Grep, Glob)
-  3. Track conversation turns for compression
+  1. Cache file reads for future summarization (enables pre-tool cache hits)
+  2. Measure potential output compression (logged for analysis, not applied)
+  3. Track conversation turns for compression analysis
   4. Trigger predictive pre-caching
   5. Log everything to the ledger
+
+NOTE: PostToolUse hooks CANNOT modify tool output — Claude already saw it.
+Actual token savings only happen via PreToolUse hooks (pre_tool.py) which
+can block/rewrite tool calls before execution. This hook's job is to build
+the cache and track metrics that enable pre-tool savings in future calls.
 
 Protocol: reads JSON from stdin, no stdout needed.
 """

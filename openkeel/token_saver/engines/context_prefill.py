@@ -52,8 +52,8 @@ def build_prefill(project_root: str = "", map_budget: int = DEFAULT_MAP_BUDGET) 
                 ledger.record(
                     event_type="prefill_ranked_map",
                     tool_name="SessionStart",
-                    original_chars=idx_result["file_count"] * 2000,
-                    saved_chars=idx_result["file_count"] * 2000 - len(ranked_map),
+                    original_chars=len(ranked_map),
+                    saved_chars=0,
                     notes=f"ranked map: {len(ranked_map)} chars from {idx_result['file_count']} files (budget: {map_budget})",
                 )
     except Exception as e:

@@ -90,18 +90,31 @@ def cmd_summary() -> str:
     else:
         lines.append(f"  {'Est. cost saved:':<20} ${saved_tokens * COST_PER_1K_INPUT_OPUS / 1000:.4f} (Opus) / ${saved_tokens * COST_PER_1K_INPUT_SONNET / 1000:.4f} (Sonnet)")
 
+    # Separate actual interceptions from tracking-only events
+    actual_types = {"cache_hit", "command_rewrite"}
+    actual_row = conn.execute(
+        "SELECT COALESCE(SUM(saved_chars),0) FROM savings WHERE event_type IN ('cache_hit','command_rewrite')"
+    ).fetchone()
+    actual_saved = (actual_row[0] if actual_row else 0) // CHARS_PER_TOKEN
+
+    lines.append(f"\n  ACTUAL SAVINGS (pre-tool interceptions that reduced context):")
+    lines.append(f"    Tokens saved by blocking/rewriting: {actual_saved:,}")
+    lines.append(f"  TRACKING ONLY (measured but not intercepted — PostToolUse can't modify output):")
+    lines.append(f"    Tokens that could be saved with pre-tool filters: {saved_tokens - actual_saved:,}")
+
     # Breakdown by event type
     lines.append(f"\n  BY EVENT TYPE")
-    lines.append(f"  {'Type':<20} {'Count':>8} {'Saved tokens':>14} {'Avg saved':>12}")
-    lines.append(f"  {'-'*20} {'-'*8} {'-'*14} {'-'*12}")
+    lines.append(f"  {'Type':<24} {'Count':>8} {'Saved tokens':>14} {'Avg saved':>12}")
+    lines.append(f"  {'-'*24} {'-'*8} {'-'*14} {'-'*12}")
 
     rows = conn.execute(
         "SELECT event_type, COUNT(*), COALESCE(SUM(saved_chars),0), "
         "COALESCE(AVG(saved_chars),0) FROM savings GROUP BY event_type ORDER BY SUM(saved_chars) DESC"
     ).fetchall()
     for etype, cnt, total_saved, avg_saved in rows:
+        tag = " *" if etype in actual_types else ""
         lines.append(
-            f"  {etype:<20} {cnt:>8} {total_saved // CHARS_PER_TOKEN:>14,} {int(avg_saved) // CHARS_PER_TOKEN:>12,}"
+            f"  {etype + tag:<24} {cnt:>8} {total_saved // CHARS_PER_TOKEN:>14,} {int(avg_saved) // CHARS_PER_TOKEN:>12,}"
         )
 
     # Top files by savings
@@ -177,19 +190,20 @@ def cmd_daily() -> str:
     lines.append(f"  {'Date':<12} {'Sessions':>10} {'Events':>8} {'Processed':>12} {'Saved':>12} {'Rate':>8} {'Est. $':>10}")
     lines.append(f"  {'-'*12} {'-'*10} {'-'*8} {'-'*12} {'-'*12} {'-'*8} {'-'*10}")
 
+    cost_per_token = COST_PER_1K_INPUT_SONNET / 1000  # Sonnet as default estimate
     total_saved = 0
     for day, events, orig, saved, sessions in rows:
         orig_tok = orig // CHARS_PER_TOKEN
         saved_tok = saved // CHARS_PER_TOKEN
         pct = round(saved / orig * 100, 1) if orig else 0
-        cost = saved_tok * COST_PER_1K_INPUT_OPUS / 1000
+        cost = saved_tok * cost_per_token
         total_saved += saved_tok
         lines.append(
             f"  {day:<12} {sessions:>10} {events:>8} {orig_tok:>12,} {saved_tok:>12,} {pct:>7.1f}% ${cost:>8.4f}"
         )
 
     lines.append(f"  {'-'*12} {'-'*10} {'-'*8} {'-'*12} {'-'*12} {'-'*8} {'-'*10}")
-    total_cost = total_saved * COST_PER_1K_INPUT_OPUS / 1000
+    total_cost = total_saved * cost_per_token
     lines.append(f"  {'TOTAL':<12} {'':>10} {'':>8} {'':>12} {total_saved:>12,} {'':>8} ${total_cost:>8.4f}")
 
     return "\n".join(lines)

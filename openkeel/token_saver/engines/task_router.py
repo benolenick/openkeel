@@ -104,7 +104,7 @@ def _llm_classify(description: str) -> dict[str, Any] | None:
         return None
 
     prompt = _CLASSIFY_PROMPT.format(task=description[:500])
-    raw = summarizer._ollama_generate(prompt, max_tokens=80)
+    raw = summarizer.ollama_generate(prompt, max_tokens=80)
     if not raw:
         return None
 
@@ -239,7 +239,7 @@ def attempt_local(
     elif classification["score"] <= 2:
         system = "You are a code assistant. Be concise and accurate. Output only the answer."
         prompt = f"{description}\n\nCode:\n{file_content[:6000]}"
-        result = summarizer._ollama_generate(prompt, system=system, max_tokens=600)
+        result = summarizer.ollama_generate(prompt, system=system, max_tokens=600)
         if result and len(result) > 20:
             ledger.record(
                 event_type="local_handled",
