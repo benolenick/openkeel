@@ -25,6 +25,72 @@ import urllib.request
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 DAEMON_URL = os.environ.get("TOKEN_SAVER_DAEMON", "http://127.0.0.1:11450")
+HYPHAE_URL = os.environ.get("HYPHAE_URL", "http://127.0.0.1:8100")
+
+# Track which files we've already saved to Hyphae this session
+_hyphae_saved: set[str] = set()
+
+
+def _save_file_skeleton_to_hyphae(file_path: str, content: str) -> None:
+    """Save a compact file skeleton to Hyphae for cross-session memory.
+
+    Stores a one-liner with filename, line count, classes, and key functions.
+    Tagged with source='token_saver' for easy filtering/purging.
+    Only saves once per file per session to avoid spam.
+    """
+    if file_path in _hyphae_saved:
+        return
+    _hyphae_saved.add(file_path)
+
+    try:
+        lines = content.split("\n") if content else []
+        line_count = len(lines)
+        basename = os.path.basename(file_path)
+
+        # Extract classes and functions from the content
+        classes = []
+        functions = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("class ") and "(" in stripped:
+                name = stripped.split("(")[0].replace("class ", "").strip()
+                classes.append(name)
+            elif stripped.startswith("def ") and "(" in stripped:
+                name = stripped.split("(")[0].replace("def ", "").strip()
+                if not name.startswith("_"):
+                    functions.append(name)
+
+        # Build compact skeleton
+        parts = [f"File {file_path} ({line_count}L)"]
+        if classes:
+            parts.append(f"classes: {', '.join(classes[:8])}")
+        if functions:
+            parts.append(f"fn: {', '.join(functions[:12])}")
+
+        # Get first docstring if present
+        for line in lines[:5]:
+            if '"""' in line or "'''" in line:
+                doc = line.strip().strip("\"'").strip()
+                if doc and len(doc) > 10:
+                    parts.append(doc[:100])
+                break
+
+        skeleton = "; ".join(parts)
+
+        # Save to Hyphae
+        payload = json.dumps({
+            "text": skeleton,
+            "source": "token_saver",
+        }).encode()
+        req = urllib.request.Request(
+            f"{HYPHAE_URL}/remember",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=2)
+    except Exception:
+        pass  # Never block Claude
 
 
 def _daemon_post(path: str, data: dict) -> dict | None:
@@ -68,6 +134,11 @@ def handle_read(tool_input: dict, tool_output: str) -> None:
     # Trigger summarization for large files
     if output_len > 4000:
         _daemon_post("/summarize", {"path": file_path})
+
+    # Save file skeleton to Hyphae for cross-session memory (Phase 3)
+    # Only for large source files, once per session
+    if output_len > 8000 and file_path.endswith((".py", ".js", ".ts", ".go", ".rs")):
+        _save_file_skeleton_to_hyphae(file_path, tool_output)
 
     # Log the read
     _daemon_post("/ledger/record", {

@@ -111,7 +111,12 @@ def _try_compress_json(raw: str) -> str | None:
     """Compress JSON API responses (Hyphae recall, Kanban, etc.).
 
     Hyphae /recall returns {"results": [{"text": "...", "score": 0.5, ...}, ...]}.
-    These are often 10-30k chars. We keep top results by score, truncate text.
+    These are often 10-30k chars. We apply:
+      - Score-based filtering (drop < 0.3)
+      - Score-based truncation (low scores get shorter text)
+      - Deduplication (skip results whose text is a substring of a kept result)
+      - Briefing preference (if a briefing exists, skip individual facts it covers)
+      - Adaptive limit (stop when cumulative text > 2500 chars)
     """
     try:
         data = json.loads(raw.strip())
@@ -124,18 +129,77 @@ def _try_compress_json(raw: str) -> str | None:
     # Hyphae recall response
     if "results" in data and isinstance(data["results"], list):
         results = data["results"]
+
+        # Sort by score descending
+        results = sorted(results, key=lambda r: r.get("score", 0), reverse=True)
+
+        # Filter by minimum score
+        results = [r for r in results if r.get("score", 0) >= 0.3]
+
+        # Prefer briefings — if one exists, it summarizes other facts
+        briefing = None
+        non_briefing = []
+        for r in results:
+            src = r.get("source", "")
+            if "briefing" in src or "distill" in src:
+                if briefing is None:
+                    briefing = r
+            else:
+                non_briefing.append(r)
+
+        # If we have a briefing, use it + top 3 non-briefing results
+        if briefing:
+            results = [briefing] + non_briefing[:3]
+        else:
+            results = results[:8]
+
+        # Deduplicate — skip results whose text is largely contained in a kept result
+        kept_texts = []
+        deduped = []
+        for r in results:
+            text = r.get("text", "")
+            # Check if this is a near-duplicate of something we already kept
+            is_dup = False
+            text_lower = text.lower()[:200]
+            for kept in kept_texts:
+                # If 60%+ of the first 200 chars match, it's a duplicate
+                overlap = sum(1 for w in text_lower.split() if w in kept)
+                if overlap > len(text_lower.split()) * 0.6:
+                    is_dup = True
+                    break
+            if not is_dup:
+                deduped.append(r)
+                kept_texts.append(text_lower)
+
+        # Build compressed results with score-based truncation
         compressed_results = []
-        for r in results[:10]:  # Keep top 10
-            if isinstance(r, dict):
-                text = r.get("text", "")
-                # Truncate long texts to 500 chars
-                if len(text) > 500:
-                    text = text[:500] + "..."
-                compressed_results.append({
-                    "text": text,
-                    "score": round(r.get("score", 0), 3),
-                    "source": r.get("source", ""),
-                })
+        cumulative = 0
+        for r in deduped:
+            score = r.get("score", 0)
+            text = r.get("text", "")
+
+            # Score-based text budget
+            if score >= 0.6:
+                max_len = 400
+            elif score >= 0.45:
+                max_len = 250
+            else:
+                max_len = 150
+
+            if len(text) > max_len:
+                text = text[:max_len] + "..."
+
+            cumulative += len(text)
+            compressed_results.append({
+                "text": text,
+                "score": round(score, 3),
+                "source": r.get("source", ""),
+            })
+
+            # Adaptive limit — stop if we've accumulated enough context
+            if cumulative > 2500:
+                break
+
         return json.dumps({"results": compressed_results}, indent=1)
 
     # Kanban board response (list of tasks)
