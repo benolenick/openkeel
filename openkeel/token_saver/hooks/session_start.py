@@ -152,6 +152,9 @@ def main():
         pass
 
     # Phase 1: Hyphae context (fast, prevents future curl calls)
+    # NOTE: Hyphae may still be starting up at session start (takes 10-30s after
+    # boot/login). If it's unavailable here, it will likely be ready by the time
+    # the agent needs it. Do NOT report it as broken — just skip silently.
     try:
         hyphae_ctx = _build_hyphae_context(project_name)
         if hyphae_ctx:

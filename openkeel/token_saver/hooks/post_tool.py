@@ -196,25 +196,29 @@ def handle_grep(tool_input: dict, tool_output: str) -> None:
     output_len = len(tool_output) if tool_output else 0
     pattern = tool_input.get("pattern", "")
 
-    # Try search filtering
+    # Check if pre-tool already compressed this (output will contain TOKEN SAVER marker)
+    was_compressed = tool_output and "[TOKEN SAVER]" in tool_output[:50]
+
+    # Try search filtering for measurement (even if pre-tool handled it)
     saved_chars = 0
-    try:
-        from openkeel.token_saver.engines.search_filter import filter_grep_results
-        filtered, meta = filter_grep_results(
-            tool_output or "",
-            pattern=pattern,
-            project_root=os.getcwd(),
-        )
-        saved_chars = meta.get("saved_chars", 0)
-    except Exception:
-        pass
+    if not was_compressed:
+        try:
+            from openkeel.token_saver.engines.search_filter import filter_grep_results
+            filtered, meta = filter_grep_results(
+                tool_output or "",
+                pattern=pattern,
+                project_root=os.getcwd(),
+            )
+            saved_chars = meta.get("saved_chars", 0)
+        except Exception:
+            pass
 
     _daemon_post("/ledger/record", {
         "event_type": "grep_output",
         "tool_name": "Grep",
         "original_chars": output_len,
         "saved_chars": saved_chars,
-        "notes": f"pattern: {pattern[:80]}",
+        "notes": f"pattern: {pattern[:80]}" + (" [pre-compressed]" if was_compressed else ""),
     })
 
     _record_turn("Grep", tool_input, tool_output)
@@ -224,20 +228,23 @@ def handle_glob(tool_input: dict, tool_output: str) -> None:
     output_len = len(tool_output) if tool_output else 0
     pattern = tool_input.get("pattern", "")
 
+    was_compressed = tool_output and "[TOKEN SAVER]" in tool_output[:50]
+
     saved_chars = 0
-    try:
-        from openkeel.token_saver.engines.search_filter import filter_glob_results
-        filtered, meta = filter_glob_results(tool_output or "", pattern=pattern)
-        saved_chars = meta.get("saved_chars", 0)
-    except Exception:
-        pass
+    if not was_compressed:
+        try:
+            from openkeel.token_saver.engines.search_filter import filter_glob_results
+            filtered, meta = filter_glob_results(tool_output or "", pattern=pattern)
+            saved_chars = meta.get("saved_chars", 0)
+        except Exception:
+            pass
 
     _daemon_post("/ledger/record", {
         "event_type": "glob_output",
         "tool_name": "Glob",
         "original_chars": output_len,
         "saved_chars": saved_chars,
-        "notes": f"pattern: {pattern[:80]}",
+        "notes": f"pattern: {pattern[:80]}" + (" [pre-compressed]" if was_compressed else ""),
     })
 
     _record_turn("Glob", tool_input, tool_output)

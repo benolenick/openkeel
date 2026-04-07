@@ -53,28 +53,51 @@ def record_turn(
 
 
 def _summarize_turn(tool_name: str, tool_input: dict, tool_output: str) -> str:
-    """Create a one-line summary of a tool call."""
+    """Create a concise but informative summary of a tool call.
+
+    Includes output size and key findings to make compressed summaries
+    actually useful for understanding session history.
+    """
+    out_len = len(tool_output)
+    out_preview = ""
+    if out_len > 200:
+        # Extract first meaningful line from output for context
+        for line in tool_output.split("\n")[:10]:
+            stripped = line.strip()
+            if stripped and len(stripped) > 10 and not stripped.startswith(("[TOKEN SAVER]", "---")):
+                out_preview = f" → {stripped[:80]}"
+                break
+
     if tool_name == "Read":
         path = tool_input.get("file_path", "")
-        return f"Read {os.path.basename(path)} ({len(tool_output)} chars)"
+        lines = tool_output.count("\n") + 1 if tool_output else 0
+        return f"Read {os.path.basename(path)} ({lines}L, {out_len} chars)"
     elif tool_name == "Edit":
         path = tool_input.get("file_path", "")
-        old = tool_input.get("old_string", "")[:40]
-        return f"Edited {os.path.basename(path)}: '{old}...'"
+        old = tool_input.get("old_string", "")[:50]
+        new = tool_input.get("new_string", "")[:50]
+        return f"Edited {os.path.basename(path)}: '{old}' → '{new}'"
     elif tool_name == "Write":
         path = tool_input.get("file_path", "")
-        return f"Created {os.path.basename(path)}"
+        content_len = len(tool_input.get("content", ""))
+        return f"Created {os.path.basename(path)} ({content_len} chars)"
     elif tool_name == "Bash":
-        cmd = tool_input.get("command", "")[:80]
-        return f"Ran: {cmd}"
+        cmd = tool_input.get("command", "")[:100]
+        status = "OK" if out_len < 200 else f"{out_len} chars"
+        return f"Ran: {cmd} [{status}]{out_preview}"
     elif tool_name == "Grep":
         pattern = tool_input.get("pattern", "")
-        return f"Searched for '{pattern}'"
+        match_count = tool_output.count("\n") + 1 if tool_output.strip() else 0
+        return f"Grep '{pattern}' → {match_count} results ({out_len} chars)"
     elif tool_name == "Glob":
         pattern = tool_input.get("pattern", "")
-        return f"Found files matching '{pattern}'"
+        match_count = tool_output.count("\n") + 1 if tool_output.strip() else 0
+        return f"Glob '{pattern}' → {match_count} files"
+    elif tool_name == "Agent":
+        desc = tool_input.get("description", "agent task")
+        return f"Agent: {desc} ({out_len} chars output)"
     else:
-        return f"{tool_name} call"
+        return f"{tool_name} call ({out_len} chars)"
 
 
 def _maybe_compress() -> None:

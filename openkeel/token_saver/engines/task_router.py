@@ -1,7 +1,7 @@
 """Task Router — LLM-powered task classification + local handling.
 
 Replaces regex pattern matching with a 1-shot LLM classifier (from RouteLLM's
-insight). Asks the local qwen2.5-coder:3b to rate task complexity 1-5, which
+insight). Asks the local gemma4:e2b to rate task complexity 1-5, which
 is far more accurate than regex for edge cases.
 
 Falls back to regex patterns if the LLM is unavailable.

@@ -55,8 +55,7 @@ MODELS: dict[str, ModelPricing] = {
     "deepseek-reasoner": ModelPricing("DeepSeek R1", "DeepSeek", 0.55, 2.19, 0.14, 128000),
 
     # Local (free)
-    "qwen2.5-coder:3b": ModelPricing("Qwen 2.5 Coder 3B", "Local/Ollama", 0.0, 0.0, 0.0, 32000, "local GPU"),
-    "qwen2.5:7b": ModelPricing("Qwen 2.5 7B", "Local/Ollama", 0.0, 0.0, 0.0, 32000, "local GPU"),
+    "gemma4:e2b": ModelPricing("Gemma 4 E2B", "Local/Ollama", 0.0, 0.0, 0.0, 32000, "local GPU"),
     "qwen3:8b": ModelPricing("Qwen 3 8B", "Local/Ollama", 0.0, 0.0, 0.0, 32000, "local GPU"),
     "qwen3.5:latest": ModelPricing("Qwen 3.5", "Local/Ollama", 0.0, 0.0, 0.0, 32000, "local GPU"),
     "llama3:8b": ModelPricing("Llama 3 8B", "Local/Ollama", 0.0, 0.0, 0.0, 8000, "local GPU"),
