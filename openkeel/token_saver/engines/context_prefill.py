@@ -49,12 +49,17 @@ def build_prefill(project_root: str = "", map_budget: int = DEFAULT_MAP_BUDGET) 
                 parts.append(f"[TOKEN SAVER] Project map ({idx_result['file_count']} files, ranked by relevance):")
                 parts.append(ranked_map)
 
+                # Estimate what a full (unranked, unbudgeted) dump would cost:
+                # ~120 chars/file for a compact listing with description + symbols.
+                # That's the baseline we avoid by serving a ranked, budgeted map.
+                full_dump_estimate = idx_result['file_count'] * 120
+                saved = max(0, full_dump_estimate - len(ranked_map))
                 ledger.record(
                     event_type="prefill_ranked_map",
                     tool_name="SessionStart",
-                    original_chars=len(ranked_map),
-                    saved_chars=0,
-                    notes=f"ranked map: {len(ranked_map)} chars from {idx_result['file_count']} files (budget: {map_budget})",
+                    original_chars=full_dump_estimate,
+                    saved_chars=saved,
+                    notes=f"ranked map: {len(ranked_map)} chars from {idx_result['file_count']} files (budget: {map_budget}, full≈{full_dump_estimate})",
                 )
     except Exception as e:
         parts.append(f"[TOKEN SAVER] Index build failed: {e}")
