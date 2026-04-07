@@ -150,6 +150,20 @@ def handle_read(tool_input: dict, tool_output: str) -> None:
         "notes": f"read {output_len} chars ({os.path.basename(file_path)})",
     })
 
+    # Persistent cross-session read log — so future sessions can
+    # suppress unchanged re-reads
+    if output_len > 500:
+        try:
+            from openkeel.token_saver import read_log
+            import os as _os
+            try:
+                _stat = _os.stat(file_path)
+                read_log.record(file_path, _stat.st_mtime, _stat.st_size)
+            except OSError:
+                pass
+        except Exception:
+            pass
+
     # Predictive pre-cache: predict and warm next likely reads
     try:
         from openkeel.token_saver.engines.predictive_cache import predict_next_reads, pre_warm

@@ -320,35 +320,36 @@ def _run_and_compress(command: str, timeout: int = 15, label: str = "",
         compressed = _smart_truncate(raw, _MAX_OUTPUT)
 
     saved = max(0, len(raw) - len(compressed))
-    if saved > 200:
-        # LLM summarization — aggressive mode. Fires on piped commands too now
-        # that the hot path is qwen2.5:3b @ ~200 tok/s on jagg's 3090.
-        if len(raw) > _MIN_LLM_SUMMARIZE:
-            try:
-                from openkeel.token_saver.engines.llm_calibrator import should_use_llm
-                if not should_use_llm("summarization"):
-                    raise RuntimeError("LLM not trusted for summarization")
-                from openkeel.token_saver.summarizer import summarize_bash_output
-                raw_lines = len(raw.split("\n"))
-                min_lines = max(15, int(raw_lines * 0.2))  # at least 15 lines or 20%
-                llm_result = summarize_bash_output(command, raw, max_lines=min_lines)
-                if llm_result and len(llm_result) < len(compressed):
-                    compressed = (
-                        f"[TOKEN SAVER] Output summarized by LLM ({len(raw)} → {len(llm_result)} chars).\n"
-                        f"Run the command again if you need raw output.\n\n{llm_result}"
-                    )
-                    saved = max(0, len(raw) - len(compressed))
-                    _record_savings("bash_llm_summarize", "Bash", len(raw), saved,
-                                    f"{label}: LLM summarized {command[:60]}")
-                    return {"decision": "block", "reason": compressed}
-            except Exception:
-                pass
+    # (Fix 3) LLM path now fires whenever raw > _MIN_LLM_SUMMARIZE, even if
+    # regex saved nothing — catches novel command shapes that bash_compress
+    # can't handle with deterministic rules.
+    if len(raw) > _MIN_LLM_SUMMARIZE:
+        try:
+            from openkeel.token_saver.engines.llm_calibrator import should_use_llm
+            if not should_use_llm("summarization"):
+                raise RuntimeError("LLM not trusted for summarization")
+            from openkeel.token_saver.summarizer import summarize_bash_output
+            raw_lines = len(raw.split("\n"))
+            min_lines = max(15, int(raw_lines * 0.2))
+            llm_result = summarize_bash_output(command, raw, max_lines=min_lines)
+            if llm_result and len(llm_result) < len(compressed):
+                compressed = (
+                    f"[TOKEN SAVER] Output summarized by LLM ({len(raw)} → {len(llm_result)} chars).\n"
+                    f"Run the command again if you need raw output.\n\n{llm_result}"
+                )
+                saved = max(0, len(raw) - len(compressed))
+                _record_savings("bash_llm_summarize", "Bash", len(raw), saved,
+                                f"{label}: LLM summarized {command[:60]}")
+                return {"decision": "block", "reason": compressed}
+        except Exception:
+            pass
 
+    if saved > 200:
         _record_savings("bash_compress", "Bash", len(raw), saved,
                         f"{label}: {command[:80]}")
         return {"decision": "block", "reason": compressed}
 
-    # No meaningful savings — let the original command run
+    # No meaningful savings and LLM declined — let the original command run
     return None
 
 
@@ -396,12 +397,32 @@ def handle_read(tool_input: dict) -> dict | None:
     except OSError:
         return None
 
+    # --- Binary file guard — refuse to read non-text files as text ---
+    _BIN_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp3", ".mp4",
+                 ".m4a", ".mov", ".avi", ".zip", ".tar", ".gz", ".bz2",
+                 ".xz", ".7z", ".pdf", ".bin", ".so", ".dylib", ".exe",
+                 ".o", ".a", ".pyc", ".class", ".wasm", ".ico")
+    _fpl = file_path.lower()
+    if any(_fpl.endswith(ext) for ext in _BIN_EXTS):
+        msg = (
+            f"[TOKEN SAVER] Refused to read binary file {file_path} "
+            f"({stat.st_size} bytes). Use `file`, `exiftool`, `identify`, "
+            f"or a dedicated tool to inspect non-text files."
+        )
+        _record_savings(
+            "binary_file_blocked", "Read", stat.st_size,
+            max(0, stat.st_size - len(msg)),
+            f"binary: {file_path}", file_path,
+        )
+        return {"decision": "block", "reason": msg}
+
     # Don't intercept small files
     if stat.st_size < 4000:
         _check_session_read(file_path)
         return None
 
-    # If specific lines requested, let it through
+    # If specific lines requested, let it through (offset/limit is Claude
+    # asking for a precise slice — never block these)
     if tool_input.get("offset") or tool_input.get("limit"):
         _check_session_read(file_path)
         state = _load_session_state()
@@ -411,6 +432,35 @@ def handle_read(tool_input: dict) -> dict | None:
         state.setdefault("mtimes", {})[file_path] = stat.st_mtime
         _save_session_state(state)
         return None
+
+    # --- Persistent cross-session re-read suppression ---
+    # If we've read this exact file+mtime within the last week (and Claude
+    # did NOT ask for a specific slice), serve a short "unchanged" message
+    # instead of the full content. Catches cross-session re-reads that the
+    # per-session mtime cache misses.
+    try:
+        from openkeel.token_saver import read_log as _rl
+        prev = _rl.unchanged_since_last_read(file_path, stat.st_mtime)
+    except Exception:
+        prev = None
+    if prev is not None:
+        import time as _time
+        age_hr = (_time.time() - prev["last_read_ts"]) / 3600
+        short_msg = (
+            f"[TOKEN SAVER] File unchanged since last read "
+            f"({stat.st_size} bytes, last read {age_hr:.1f}h ago across sessions, "
+            f"read {prev['read_count']} times). Use Read with offset/limit "
+            f"for specific sections, or touch the file to force a re-read.\n"
+            f"File: {file_path}"
+        )
+        _record_savings(
+            "persistent_reread_block", "Read", stat.st_size,
+            max(0, stat.st_size - len(short_msg)),
+            f"persistent re-read: {file_path} (age {age_hr:.1f}h, count "
+            f"{prev['read_count']})",
+            file_path,
+        )
+        return {"decision": "block", "reason": short_msg}
 
     # If this is a re-read, try to serve a summary
     already_read = _check_session_read(file_path)
@@ -485,7 +535,8 @@ def handle_read(tool_input: dict) -> dict | None:
     # --- First-read large file compression ---
     # For large files (>8KB), provide head + structure + tail instead of full content
     _LARGE_FILE_THRESHOLD = 8000
-    if stat.st_size > _LARGE_FILE_THRESHOLD and not already_read:
+    # (Fix 2) Removed `and not already_read` so goal_reader fires on re-reads too.
+    if stat.st_size > _LARGE_FILE_THRESHOLD:
         try:
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
@@ -1296,6 +1347,37 @@ def handle_edit(tool_input: dict) -> dict | None:
 
     if not file_path or not old_string:
         return None
+
+    # --- Hard size guard ----------------------------------------------------
+    # Block oversized Edit payloads outright. Historically these slip past the
+    # trim path (uniqueness fails, file unreadable, etc.) and leak ~45K tokens
+    # each via the post-tool file echo. Force Claude to split into smaller
+    # edits before any of that can happen.
+    OLD_STRING_HARD_CAP = 4000  # ~1000 tokens
+    if len(old_string) > OLD_STRING_HARD_CAP:
+        try:
+            _record_savings(
+                "edit_oversized_blocked", "Edit",
+                len(old_string) + len(new_string), 0,
+                f"blocked oversized Edit on {os.path.basename(file_path)} "
+                f"({len(old_string)} chars old_string)",
+                file_path,
+            )
+        except Exception:
+            pass
+        return {
+            "decision": "block",
+            "reason": (
+                f"[TOKEN SAVER \u2717 EDIT TOO LARGE] old_string is "
+                f"{len(old_string)} chars (~{len(old_string)//4} tokens). "
+                f"Hard cap is {OLD_STRING_HARD_CAP} chars.\n"
+                f"Split this into multiple smaller Edit calls — each old_string "
+                f"should be the MINIMUM unique snippet (1-3 lines), not a large "
+                f"block. See CLAUDE.md 'Edit Tool — Keep Edits Small'.\n"
+                f"Alternative: use #LOCALEDIT: {file_path} | <plain-english change> "
+                f"to delegate to the local LLM."
+            ),
+        }
 
     # Read the file to check size
     try:
