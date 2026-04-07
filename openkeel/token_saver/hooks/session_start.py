@@ -12,6 +12,7 @@ Runs at session start to:
 Outputs context to stdout for Claude to see.
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -19,6 +20,55 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+SESSION_MARKER_DIR = Path.home() / ".openkeel" / "token_saver_sessions"
+SESSION_MARKER_TTL = 6 * 3600  # 6h — long enough for a real session, short enough to self-heal
+
+
+def _read_claude_session_id() -> str:
+    """Read Claude Code's session_id from stdin JSON payload.
+
+    Claude Code passes hook input as JSON on stdin. Falls back to a hash of
+    cwd+date so multiple hook firings within the same day still dedup if
+    stdin is unavailable (manual test, older Claude, etc.).
+    """
+    try:
+        if not sys.stdin.isatty():
+            raw = sys.stdin.read()
+            if raw:
+                data = json.loads(raw)
+                sid = data.get("session_id") or data.get("sessionId")
+                if sid:
+                    return str(sid)[:32]
+    except Exception:
+        pass
+    # Fallback: cwd + date bucket — dedups repeated hook fires within same day
+    seed = f"{os.getcwd()}|{time.strftime('%Y%m%d')}"
+    return "fallback-" + hashlib.sha1(seed.encode()).hexdigest()[:12]
+
+
+def _already_briefed(session_id: str) -> bool:
+    """Check if this Claude session already got the full briefing."""
+    try:
+        SESSION_MARKER_DIR.mkdir(parents=True, exist_ok=True)
+        marker = SESSION_MARKER_DIR / session_id
+        if marker.exists():
+            age = time.time() - marker.stat().st_mtime
+            if age < SESSION_MARKER_TTL:
+                return True
+        marker.touch()
+        # Opportunistic cleanup of stale markers
+        now = time.time()
+        for m in SESSION_MARKER_DIR.iterdir():
+            try:
+                if now - m.stat().st_mtime > SESSION_MARKER_TTL:
+                    m.unlink()
+            except Exception:
+                pass
+        return False
+    except Exception:
+        return False
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
@@ -127,6 +177,25 @@ def main():
     project_root = os.getcwd()
     project_name = os.path.basename(project_root)
 
+    # Dedup: if this Claude session already got the full briefing, emit a
+    # tiny warm-reattach line and exit. Prevents the hook from re-dumping
+    # ~4-8K tokens of briefing on every re-trigger within the same session.
+    claude_session_id = _read_claude_session_id()
+    os.environ["TOKEN_SAVER_SESSION"] = claude_session_id
+    if _already_briefed(claude_session_id):
+        print(f"[TOKEN SAVER] Warm reattach (session {claude_session_id[:8]}) — briefing already injected.")
+        try:
+            from openkeel.token_saver import ledger
+            ledger.record(
+                event_type="session_reattach",
+                tool_name="SessionStart",
+                session_id=claude_session_id,
+                notes=f"project: {project_name}",
+            )
+        except Exception:
+            pass
+        return
+
     # Ensure daemon is running
     if not _daemon_running():
         _start_daemon()
@@ -192,6 +261,7 @@ def main():
         ledger.record(
             event_type="session_start",
             tool_name="SessionStart",
+            session_id=claude_session_id,
             notes=f"project: {project_name}",
         )
     except Exception:
