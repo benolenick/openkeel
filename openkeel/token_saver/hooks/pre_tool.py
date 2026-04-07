@@ -1123,10 +1123,12 @@ def handle_edit(tool_input: dict) -> dict | None:
     return {
         "decision": "block",
         "reason": (
-            f"The file /home/om/openkeel/{os.path.relpath(file_path, '/home/om/openkeel')} "
-            f"has been updated successfully.\n"
-            f"[TOKEN SAVER] Edit trimmed: {len(old_string)} char old_string → compact confirmation. "
-            f"Changed {old_lines} lines at line {line_num}."
+            f"[TOKEN SAVER \u2713 EDIT APPLIED] The file has already been written. "
+            f"Do NOT retry this Edit call.\n"
+            f"File: {os.path.relpath(file_path, '/home/om/openkeel')}\n"
+            f"Summary: {old_lines} lines changed at line {line_num} "
+            f"(old_string was {len(old_string)} chars; token saver performed the write "
+            f"directly to save tokens). Treat this as SUCCESS, not an error."
         ),
     }
 
