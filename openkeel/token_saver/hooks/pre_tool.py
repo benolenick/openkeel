@@ -35,6 +35,26 @@ _MAX_OUTPUT = 3000
 # Persist session state across hook invocations via temp file
 _STATE_FILE = os.path.join(tempfile.gettempdir(), f"token_saver_session_{os.getppid()}.json")
 
+# --- v4 LLM-as-input-filter integration (recall_rerank, diff_compressor) ---
+_V4_ENABLED = os.environ.get("TOKEN_SAVER_V4", "0") == "1"
+_V4_DISABLE_RERANK = os.environ.get("TOKEN_SAVER_DISABLE_RECALL_RERANK", "0") == "1"
+_V4_DISABLE_DIFF = os.environ.get("TOKEN_SAVER_DISABLE_DIFF_COMPRESSOR", "0") == "1"
+
+def _extract_recall_query(command: str) -> str:
+    """Pull the 'query' field out of a curl POST body to /recall.
+    Returns empty string if not found. Best-effort, never raises."""
+    if "/recall" not in command:
+        return ""
+    try:
+        m = re.search(r"-d\s+'([^']+)'", command) or re.search(r'-d\s+"([^"]+)"', command)
+        if not m:
+            return ""
+        body = json.loads(m.group(1))
+        q = body.get("query", "")
+        return q if isinstance(q, str) else ""
+    except Exception:
+        return ""
+
 def _load_session_state() -> dict:
     try:
         with open(_STATE_FILE, "r") as f:
@@ -126,7 +146,7 @@ def _strip_ansi(text: str) -> str:
     return _ANSI.sub("", text)
 
 
-def _try_compress_json(raw: str) -> str | None:
+def _try_compress_json(raw: str, query: str = "") -> str | None:
     """Compress JSON API responses (Hyphae recall, Kanban, etc.).
 
     Hyphae /recall returns {"results": [{"text": "...", "score": 0.5, ...}, ...]}.
@@ -148,6 +168,24 @@ def _try_compress_json(raw: str) -> str | None:
     # Hyphae recall response
     if "results" in data and isinstance(data["results"], list):
         results = data["results"]
+
+        # --- v4.1: LLM rerank pass (input filter, runs BEFORE the heuristic) ---
+        if _V4_ENABLED and not _V4_DISABLE_RERANK and query and len(results) >= 4:
+            try:
+                from openkeel.token_saver_v4.engines import recall_rerank
+                _n_in = len(results)
+                decision = recall_rerank.rerank(query, results)
+                if not decision.fell_back and decision.kept_indices:
+                    results = [results[i] for i in decision.kept_indices]
+                    if decision.saved_chars > 200:
+                        _record_savings(
+                            "recall_rerank", "Bash",
+                            decision.original_chars, decision.saved_chars,
+                            f"v4.1 rerank: {len(decision.kept_indices)}/{_n_in} kept "
+                            f"q={query[:40]} ({decision.latency_ms:.0f}ms)",
+                        )
+            except Exception:
+                pass
 
         # Sort by score descending
         results = sorted(results, key=lambda r: r.get("score", 0), reverse=True)
@@ -251,10 +289,32 @@ def _run_and_compress(command: str, timeout: int = 15, label: str = "",
         # Small output — let Claude handle it normally (don't block)
         return None
 
+    # v5 STRUCTURED-OUTPUT GUARD
+    # If the output is valid JSON / HTML / CSV, the text LLM summarizer WILL
+    # corrupt it (drops commas/braces, fabricates entries). Pass through to
+    # Claude unmodified so downstream code can parse it correctly.
+    # Directly fixes the bash-corrupts-JSON bug observed in session 2026-04-07.
+    try:
+        from openkeel.token_saver_v5 import json_guard
+        from openkeel.token_saver_v5 import debug_log as _v5_log
+        kind = json_guard.looks_structured(raw)
+        if kind != "none":
+            _v5_log.note(
+                "pre_tool._run_and_compress",
+                f"structured passthrough ({kind})",
+                tool="Bash", command=command[:80], size=len(raw),
+            )
+            return None  # let Claude see the raw structured output
+    except Exception:
+        # v5 not available or import failure — fall through to legacy path.
+        # (Don't log here: we don't have v5's debug_log if it just failed.)
+        pass
+
     # Try JSON compression if flagged
     compressed = None
     if json_compress:
-        compressed = _try_compress_json(raw)
+        recall_query = _extract_recall_query(command)
+        compressed = _try_compress_json(raw, query=recall_query)
 
     if compressed is None:
         compressed = _smart_truncate(raw, _MAX_OUTPUT)
@@ -463,6 +523,33 @@ def handle_read(tool_input: dict) -> dict | None:
             f"=== STRUCTURE (classes/functions/exports) ===\n{struct_block}\n\n"
             f"=== LAST 30 LINES ===\n{tail}"
         )
+
+        # v4.3: goal-conditioned filter — runs BEFORE semantic_skeleton
+        # because it produces a much tighter result when a goal is available.
+        if _V4_ENABLED and len(content) >= 5000 and not os.environ.get("TOKEN_SAVER_DISABLE_GOAL_READER"):
+            try:
+                from openkeel.token_saver_v4.engines import goal_reader
+                _goal = goal_reader.get_current_goal()
+                _gd = goal_reader.filter_by_goal(content, goal=_goal, file_path=file_path)
+                if not _gd.fell_back and _gd.saved_chars > 1500:
+                    v43_block = (
+                        f"[TOKEN SAVER v4.3] Goal-filtered file "
+                        f"({_gd.original_chars} -> {_gd.output_chars} chars, "
+                        f"goal: {_gd.goal_used[:80]}). "
+                        f"Use Read with offset/limit for raw sections.\n\n"
+                        f"File: {file_path}\n\n{_gd.output}"
+                    )
+                    if len(v43_block) < len(compressed):
+                        _record_savings(
+                            "goal_filter", "Read",
+                            _gd.original_chars, max(0, _gd.original_chars - len(v43_block)),
+                            f"goal-filter: {total_lines}L -> {_gd.output_chars}c "
+                            f"({_gd.latency_ms:.0f}ms)",
+                            file_path,
+                        )
+                        return {"decision": "block", "reason": v43_block}
+            except Exception:
+                pass
 
         # v4: try LLM-generated semantic skeleton as a tighter alternative
         if os.environ.get("TOKEN_SAVER_V4") == "1" and len(content) > 4000:
@@ -687,6 +774,39 @@ def handle_bash(tool_input: dict) -> dict | None:
             return {"decision": "block", "reason": f"[TOKEN SAVER] Compressed git output:\n{compressed}"}
         # If no savings, return the output as-is (still blocked since we already ran it)
         return {"decision": "block", "reason": compressed}
+
+    # --- v4.2: Git diff/show/log -p — LLM semantic compression ---
+    _is_diff_cmd = (
+        cmd_lower.startswith("git diff")
+        or cmd_lower.startswith("git show")
+        or (cmd_lower.startswith("git log") and " -p" in command)
+    )
+    if _V4_ENABLED and not _V4_DISABLE_DIFF and _is_diff_cmd:
+        output, rc = _run_cmd(command + " 2>&1", timeout=20)
+        raw = _strip_ansi(output)
+        if len(raw) >= 800:
+            try:
+                from openkeel.token_saver_v4.engines import diff_compressor
+                decision = diff_compressor.compress(raw)
+                if not decision.fell_back and decision.saved_chars > 500:
+                    _record_savings(
+                        "diff_compress", "Bash",
+                        decision.original_chars, decision.saved_chars,
+                        f"v4.2 diff: {decision.output_chars} chars from {decision.original_chars} "
+                        f"({decision.latency_ms:.0f}ms)",
+                    )
+                    return {
+                        "decision": "block",
+                        "reason": (
+                            f"[TOKEN SAVER v4.2] Diff compressed by LLM "
+                            f"({decision.original_chars} -> {decision.output_chars} chars).\n"
+                            f"Re-run with --no-color | cat if you need raw.\n\n{decision.output}"
+                        ),
+                    }
+            except Exception:
+                pass
+        if raw:
+            return {"decision": "block", "reason": raw if len(raw) < 8000 else _smart_truncate(raw)}
 
     # --- Git log without limits ---
     if cmd_lower.startswith("git log") and " -n" not in command and "--oneline" not in command and "| head" not in command:
@@ -1061,25 +1181,97 @@ def handle_glob(tool_input: dict) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Engine: WebFetch Summarization (v4.5)
+# ---------------------------------------------------------------------------
+
+def handle_webfetch(tool_input: dict) -> dict | None:
+    """v4.5: intercept WebFetch, fetch the URL ourselves, then run
+    webfetch_summarizer (qwen) to compress the page against the user's
+    question. Block with the compressed result. Fail-open on any error."""
+    if not _V4_ENABLED or os.environ.get("TOKEN_SAVER_DISABLE_WEBFETCH_SUMMARIZER"):
+        return None
+    url = (tool_input.get("url") or "").strip()
+    question = (tool_input.get("prompt") or "").strip()
+    if not url:
+        return None
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "Mozilla/5.0 (token-saver-v4.5)"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw_bytes = resp.read(800_000)
+        page = raw_bytes.decode("utf-8", errors="replace")
+    except Exception:
+        return None
+    if len(page) < 1500:
+        return None
+    try:
+        from openkeel.token_saver_v4.engines import webfetch_summarizer
+        d = webfetch_summarizer.summarize(page, question=question)
+        if d.fell_back or d.saved_chars < 500:
+            return None
+        _record_savings(
+            "webfetch_compress", "WebFetch",
+            d.original_chars, d.saved_chars,
+            f"v4.5 webfetch: {d.original_chars}->{d.output_chars} "
+            f"({d.latency_ms:.0f}ms) {url[:60]}",
+        )
+        return {
+            "decision": "block",
+            "reason": (
+                f"[TOKEN SAVER v4.5] Fetched {url} ({d.original_chars} chars) "
+                f"and filtered for question: {question[:80]!r}. "
+                f"Compressed to {d.output_chars} chars.\n\n{d.output}"
+            ),
+        }
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Engine: Agent Prompt Trimming
 # ---------------------------------------------------------------------------
 
 def handle_agent(tool_input: dict) -> dict | None:
-    """Track agent spawns and trim redundant context from prompts.
-
-    Agent prompts often repeat information already in the conversation.
-    We can't modify the prompt, but we can detect and log waste, and
-    for very large prompts, we block with a note to use a shorter prompt.
-    """
+    """Intercept Agent spawns. v4.4: when prompt is large, block with a
+    qwen-rewritten tighter version + concision directive. Claude re-spawns
+    with the shorter prompt; subagent reads less AND returns less."""
     prompt = tool_input.get("prompt", "")
+    description = tool_input.get("description", "")
     prompt_len = len(prompt)
 
-    # Log agent spawn for analysis
     _record_savings("agent_spawn", "Agent", prompt_len, 0,
-                    f"agent: {tool_input.get('description', '')[:80]}, prompt: {prompt_len} chars")
+                    f"agent: {description[:80]}, prompt: {prompt_len} chars")
 
-    # For extremely long agent prompts (>8K chars), suggest trimming
-    # but don't block — agents are expensive to re-prompt
+    # v4.4 subagent_filter — only fires on prompts above the threshold
+    if (_V4_ENABLED
+        and not os.environ.get("TOKEN_SAVER_DISABLE_SUBAGENT_FILTER")
+        and prompt_len >= 2500):
+        try:
+            from openkeel.token_saver_v4.engines import subagent_filter
+            d = subagent_filter.compress_prompt(prompt, description=description)
+            if not d.fell_back and d.saved_chars > 500:
+                _record_savings(
+                    "subagent_compress", "Agent",
+                    d.original_chars, d.saved_chars,
+                    f"v4.4 subagent: {d.original_chars}->{d.output_chars} "
+                    f"({d.latency_ms:.0f}ms) {description[:50]}",
+                )
+                return {
+                    "decision": "block",
+                    "reason": (
+                        f"[TOKEN SAVER v4.4] Agent prompt was {d.original_chars} chars. "
+                        f"Re-spawn the Agent with this tighter version "
+                        f"({d.output_chars} chars, saves "
+                        f"{int(d.saved_chars / d.original_chars * 100)}%). "
+                        f"The directive at the end ensures the subagent returns a "
+                        f"concise answer.\n\n"
+                        f"REWRITTEN PROMPT:\n\n{d.output}"
+                    ),
+                }
+        except Exception:
+            pass
+
     return None
 
 
@@ -1235,6 +1427,8 @@ def main():
             result = handle_glob(tool_input)
         elif tool_name == "Agent":
             result = handle_agent(tool_input)
+        elif tool_name == "WebFetch":
+            result = handle_webfetch(tool_input)
     except Exception:
         pass  # Fail-open
 

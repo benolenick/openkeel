@@ -376,7 +376,45 @@ def apply_edit(file_path: str, instruction: str) -> dict[str, Any]:
         result["error"] = f"Cannot write file: {e}"
         return result
 
-    # --- Build diff ---
+    # --- v5 post-write verification: real diff, AST parse, auto-rollback ---
+    # Replaces the old fake "X lines changed" summary (which came from the
+    # LLM's self-report, not a real diff). If the edit breaks .py syntax,
+    # v5's verify_edit restores from backup automatically.
+    try:
+        from openkeel.token_saver_v5 import localedit_verify
+        from openkeel.token_saver_v5 import debug_log as _v5_log
+        ver = localedit_verify.verify_edit(
+            file_path, content, new_content,
+            backup_path=backup_path, require_py_valid=True,
+        )
+        if not ver.ok:
+            _v5_log.note(
+                "local_edit.verify_edit",
+                f"rejected: {ver.reason}",
+                tool="Bash", file_path=file_path,
+                rolled_back=ver.rolled_back,
+            )
+            result["error"] = (
+                f"v5 verify rejected edit: {ver.reason}"
+                + (" (rolled back from backup)" if ver.rolled_back else "")
+            )
+            return result
+        result["diff"] = ver.diff[:2000] if ver.diff else _make_diff(lines, old_string, new_string)
+        result["lines_changed"] = ver.lines_changed
+        result["added"] = ver.added
+        result["removed"] = ver.removed
+        result["success"] = True
+        return result
+    except Exception as e:
+        # v5 not importable — fall through to legacy diff. This preserves
+        # backward compatibility if v5 is ever removed.
+        try:
+            from openkeel.token_saver_v5 import debug_log as _v5_log
+            _v5_log.swallow("local_edit.verify_import", error=e, tool="Bash")
+        except Exception:
+            pass
+
+    # --- Legacy diff fallback ---
     result["diff"] = _make_diff(lines, old_string, new_string)
     result["success"] = True
     return result

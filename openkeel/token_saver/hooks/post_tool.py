@@ -189,6 +189,20 @@ def handle_bash(tool_input: dict, tool_output: str) -> None:
         "notes": f"cmd: {command[:120]}",
     })
 
+    # v5 ERROR-LOOP DETECTION
+    # Fingerprint failing outputs so we can nudge on the 3rd+ repeat.
+    # Saves per-LOOP, not per-call — if the agent keeps retrying the same
+    # ModuleNotFoundError or file-not-found, we short-circuit future retries
+    # with a terse hint. See openkeel.token_saver_v5.error_loop for details.
+    try:
+        from openkeel.token_saver_v5 import error_loop
+        nudge = error_loop.observe("Bash", tool_output or "")
+        if nudge:
+            # Stash the nudge in the daemon so the next PreToolUse can surface it.
+            _daemon_post("/nudge/queue", {"tool": "Bash", "nudge": nudge})
+    except Exception:
+        pass
+
     _record_turn("Bash", tool_input, tool_output)
 
 
