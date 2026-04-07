@@ -12,9 +12,29 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-OLLAMA_URL = os.environ.get("TOKEN_SAVER_OLLAMA_URL", "http://127.0.0.1:11434")
-# Default local model — gemma4 for speed, think:false required
-MODEL = os.environ.get("TOKEN_SAVER_MODEL", "gemma4:e2b")
+def _resolve_fast_endpoint() -> tuple[str, str]:
+    """Resolve (url, model) from gpu_tier.get_fast_endpoint() — picks the
+    fastest small model across all reachable ollama instances.
+
+    Env vars TOKEN_SAVER_OLLAMA_URL and TOKEN_SAVER_MODEL override detection.
+    Falls back to localhost:11434 + gemma4:e2b on any failure.
+    """
+    env_url = os.environ.get("TOKEN_SAVER_OLLAMA_URL")
+    env_model = os.environ.get("TOKEN_SAVER_MODEL")
+    if env_url and env_model:
+        return env_url, env_model
+    try:
+        from openkeel.token_saver.engines.gpu_tier import get_fast_endpoint
+        fast = get_fast_endpoint()
+        if fast is not None:
+            url, model, _ = fast
+            return (env_url or url), (env_model or model)
+    except Exception:
+        pass
+    return (env_url or "http://127.0.0.1:11434"), (env_model or "gemma4:e2b")
+
+
+OLLAMA_URL, MODEL = _resolve_fast_endpoint()
 TIMEOUT = int(os.environ.get("TOKEN_SAVER_TIMEOUT", "30"))
 
 

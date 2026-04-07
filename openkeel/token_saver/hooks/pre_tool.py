@@ -27,7 +27,8 @@ DAEMON_URL = os.environ.get("TOKEN_SAVER_DAEMON", "http://127.0.0.1:11450")
 EDITED_FILES_PATH = os.path.expanduser("~/.openkeel/scribe_state.json")
 
 # Minimum output size (chars) before we bother compressing
-_MIN_COMPRESS = 1500
+_MIN_COMPRESS = 800   # was 1500 — lowered 2026-04-07 for more aggressive LLM summarization
+_MIN_LLM_SUMMARIZE = 1200  # was 2000 — now that hot path is qwen2.5:3b @ 200 tok/s
 # Max chars to return after compression
 _MAX_OUTPUT = 3000
 
@@ -260,10 +261,9 @@ def _run_and_compress(command: str, timeout: int = 15, label: str = "",
 
     saved = max(0, len(raw) - len(compressed))
     if saved > 200:
-        # For very large outputs, try LLM summarization for even better compression
-        # Skip LLM for piped commands (user already filtered) and enforce minimum floor
-        has_pipe = "|" in command
-        if len(raw) > 2000 and not has_pipe:
+        # LLM summarization — aggressive mode. Fires on piped commands too now
+        # that the hot path is qwen2.5:3b @ ~200 tok/s on jagg's 3090.
+        if len(raw) > _MIN_LLM_SUMMARIZE:
             try:
                 from openkeel.token_saver.engines.llm_calibrator import should_use_llm
                 if not should_use_llm("summarization"):
@@ -941,8 +941,8 @@ def handle_grep(tool_input: dict) -> dict | None:
     except Exception:
         pass
 
-    # Try LLM summarization for large grep results
-    if raw_len > 2000:
+    # Try LLM summarization for large grep results — aggressive threshold
+    if raw_len > _MIN_LLM_SUMMARIZE:
         try:
             from openkeel.token_saver.engines.llm_calibrator import should_use_llm
             if not should_use_llm("summarization"):

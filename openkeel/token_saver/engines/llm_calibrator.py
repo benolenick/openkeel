@@ -35,8 +35,18 @@ CACHE_TTL_SECONDS = 7 * 24 * 3600
 
 
 def _get_model_name() -> str:
-    """Get current local LLM model name."""
-    return os.environ.get("TOKEN_SAVER_MODEL", "gemma4:e2b")
+    """Get current local LLM model name — matches the hot path used at runtime."""
+    env = os.environ.get("TOKEN_SAVER_MODEL")
+    if env:
+        return env
+    try:
+        from openkeel.token_saver.engines.gpu_tier import get_fast_endpoint
+        fast = get_fast_endpoint()
+        if fast is not None:
+            return fast[1]
+    except Exception:
+        pass
+    return "gemma4:e2b"
 
 
 def _load_cache() -> dict:
