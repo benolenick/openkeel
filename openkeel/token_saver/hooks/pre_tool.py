@@ -1202,6 +1202,30 @@ def main():
     except Exception:
         pass  # Fail-open
 
+    # --- v4 shim: post-process the 'reason' field through lingua_compressor ---
+    # Only fires when TOKEN_SAVER_V4=1. Fails open — any exception falls through
+    # to the unmodified v3 result so v4 can never break the live hook path.
+    if result and os.environ.get("TOKEN_SAVER_V4") == "1":
+        try:
+            reason = result.get("reason") if isinstance(result, dict) else None
+            if isinstance(reason, str) and len(reason) >= 400:
+                from openkeel.token_saver_v4.engines import lingua_compressor as _v4lc
+                _cr = _v4lc.compress(reason)
+                if _cr.saved_chars > 0 and _cr.compressed:
+                    result["reason"] = _cr.compressed
+                    try:
+                        _record_savings(
+                            "v4_lingua_prehook",
+                            tool_name,
+                            _cr.original_chars,
+                            _cr.saved_chars,
+                            notes=f"mode={_cr.mode}",
+                        )
+                    except Exception:
+                        pass
+        except Exception:
+            pass  # v4 never blocks v3
+
     if result:
         print(json.dumps(result))
 

@@ -28,6 +28,9 @@ from typing import Any
 
 # Known model sizes (approximate param count in billions)
 _MODEL_SIZES: dict[str, float] = {
+    "gemma3:1b": 1.0,
+    "qwen2.5:1.5b": 1.5,
+    "qwen2.5:3b": 3.1,
     "gemma4:e2b": 5.1,
     "gemma4:e4b": 8.0,
     "gemma4:26b": 26.0,
@@ -39,7 +42,17 @@ _MODEL_SIZES: dict[str, float] = {
     "mistral:7b": 7.0,
     "codestral:latest": 22.0,
     "deepseek-coder-v2:16b": 16.0,
+    "gpt-oss:20b": 20.0,
 }
+
+# Models well-suited for the "hot path" (summarize, compress, simple-edit)
+# — small enough to serve at >150 tok/s on a 3090. Order = preference.
+_FAST_PATH_MODELS = (
+    "qwen2.5:3b",
+    "qwen2.5:1.5b",
+    "gemma3:1b",
+    "gemma4:e2b",
+)
 
 # Tier thresholds (param billions)
 _TIER_THRESHOLDS = [
@@ -239,9 +252,39 @@ def get_tier() -> TierInfo:
 
 
 def get_best_endpoint() -> tuple[str, str, int]:
-    """Convenience: returns (url, model_name, tier)."""
+    """Returns (url, model_name, tier) for the biggest available model.
+
+    Use for COMPLEX work. For hot-path (compress/summarize/simple-edit) use
+    get_fast_endpoint() — small models on a 3090 smoke the 26B and beat Claude.
+    """
     t = get_tier()
     return t.endpoint_url, t.model_name, t.tier
+
+
+def get_fast_endpoint() -> tuple[str, str, int] | None:
+    """Return (url, model, tier) for the fastest small model across all endpoints.
+
+    Picks from _FAST_PATH_MODELS in preference order. Prefers endpoints where
+    the model is already LOADED. Returns None if no fast model is available
+    anywhere — callers should fall back to get_best_endpoint().
+    """
+    best: tuple[str, str, int, int] | None = None
+    for url, name in _ENDPOINTS:
+        ep = _probe_endpoint(url, name)
+        if not ep.reachable:
+            continue
+        for model in ep.models:
+            mname = model.get("name", "")
+            if mname not in _FAST_PATH_MODELS:
+                continue
+            pref_idx = _FAST_PATH_MODELS.index(mname)
+            is_loaded = model.get("loaded", False)
+            score = -(pref_idx * 1000) + (500 if is_loaded else 0) - ep.latency_ms
+            if best is None or score > best[3]:
+                best = (url, mname, 1, score)
+    if best is None:
+        return None
+    return (best[0], best[1], best[2])
 
 
 def can_do(feature: str) -> bool:

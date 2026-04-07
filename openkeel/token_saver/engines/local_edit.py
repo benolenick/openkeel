@@ -22,14 +22,46 @@ from typing import Any
 TIMEOUT = int(os.environ.get("LOCAL_EDIT_TIMEOUT", "60"))
 
 
-def _get_endpoint() -> tuple[str, str, int]:
-    """Get the best Ollama endpoint and model from GPU tier detection."""
+def _get_endpoint(complex: bool = False) -> tuple[str, str, int]:
+    """Get the best Ollama endpoint and model.
+
+    complex=False (default): prefer the FAST endpoint — small model on a 3090.
+        Used for simple/mechanical edits where ~200 tok/s matters more than raw
+        capability. This is the 99% case.
+    complex=True: escalate to the POWER endpoint (biggest available model).
+        Used when the edit instruction is long, multi-step, or semantically tricky.
+    """
     try:
-        from openkeel.token_saver.engines.gpu_tier import get_best_endpoint
+        from openkeel.token_saver.engines.gpu_tier import (
+            get_best_endpoint, get_fast_endpoint,
+        )
+        if not complex:
+            fast = get_fast_endpoint()
+            if fast is not None:
+                return fast
         return get_best_endpoint()
     except Exception:
-        # Fallback to local gemma4:e2b
         return "http://127.0.0.1:11434", "gemma4:e2b", 1
+
+
+def _classify_complexity(instruction: str) -> bool:
+    """Return True if the instruction looks complex enough to need the big model.
+
+    Heuristics:
+      - more than 200 chars
+      - mentions "refactor", "redesign", "rewrite", "architecture"
+      - contains 3+ distinct verbs (very rough — counts common edit verbs)
+    """
+    if len(instruction) > 200:
+        return True
+    low = instruction.lower()
+    if any(k in low for k in ("refactor", "redesign", "rewrite", "architecture",
+                              "restructure", "multiple files")):
+        return True
+    verb_hits = sum(1 for v in ("add", "remove", "rename", "change", "replace",
+                                "update", "move", "delete", "extract", "inline")
+                    if v in low.split())
+    return verb_hits >= 3
 
 _SYSTEM_PROMPT = """\
 You are a JSON code-edit machine. You receive a file snippet and an edit instruction.
@@ -237,8 +269,10 @@ def apply_edit(file_path: str, instruction: str) -> dict[str, Any]:
         file_path (str): The edited file.
         backup_path (str): Path to the .localedit.bak file.
     """
-    # Detect best available model
-    ollama_url, model_name, tier = _get_endpoint()
+    # Detect best available model — escalate to power endpoint only if the
+    # instruction looks complex. Default: fast 3B on jagg 3090 (~200 tok/s).
+    is_complex = _classify_complexity(instruction)
+    ollama_url, model_name, tier = _get_endpoint(complex=is_complex)
 
     result: dict[str, Any] = {
         "success": False,
