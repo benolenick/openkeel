@@ -186,6 +186,56 @@ class TestErrorLoop(unittest.TestCase):
         fp2, _ = error_loop.fingerprint_error(err2)
         self.assertEqual(fp1, fp2)
 
+    def test_successful_bash_not_tracked(self):
+        """Fix 2026-04-07: successful outputs were polluting the state file."""
+        noise_samples = [
+            "pid 2053817",
+            "syntax OK\n---\n1|1775580537",
+            "total 4612\ndrwxrwxr-x  2 om om    4096 Apr  7 11:55",
+            '{"cpu":13.8,"disk_free_gb":54.4}',
+            "Apr 7 12:49",
+            "1273856",
+            "error_loop_state.json\n/home/om/.openkeel/cache",
+        ]
+        for output in noise_samples:
+            result = error_loop.observe("Bash", output)
+            self.assertIsNone(result, f"false positive on: {output[:40]}")
+
+    def test_real_failures_still_detected(self):
+        """Gate must not false-negative on actual error output."""
+        real_errors = [
+            "Traceback (most recent call last):\n  File 'x.py', line 3\nValueError: bad",
+            "bash: foo: command not found",
+            "error: unknown option '--wat'",
+            "fatal: not a git repository",
+            "cp: cannot access '/nope': No such file or directory",
+            "HTTP 404 Not Found",
+            "connection refused on port 8100",
+        ]
+        error_loop.clear()
+        for i, err in enumerate(real_errors):
+            # Use unique variants so they don't share a fingerprint
+            result = error_loop.observe("Bash", err + f" [{i}]")
+            self.assertIsNone(result, "first observation should be silent")
+        # Fire a real 3x loop
+        error_loop.clear()
+        for _ in range(2):
+            self.assertIsNone(error_loop.observe("Bash", real_errors[0]))
+        self.assertIsNotNone(error_loop.observe("Bash", real_errors[0]))
+
+    def test_state_file_capped(self):
+        """State file must not grow unboundedly."""
+        error_loop.clear()
+        # Generate 250 distinct fake failures
+        for i in range(250):
+            err = f"ValueError: bad value {i} at position X"
+            error_loop.observe("Bash", err)
+        state = error_loop._load_state()
+        self.assertLessEqual(
+            len(state.entries), error_loop.MAX_ENTRIES,
+            f"state cap not enforced: {len(state.entries)} > {error_loop.MAX_ENTRIES}",
+        )
+
     def test_different_errors_dont_cross_pollinate(self):
         e1 = "ModuleNotFoundError: No module named 'foo'"
         e2 = "FileNotFoundError: [Errno 2] No such file: '/etc/passwd'"

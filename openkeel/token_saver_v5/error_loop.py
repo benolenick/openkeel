@@ -39,6 +39,29 @@ from .debug_log import note, swallow
 
 REPEAT_THRESHOLD = 3  # Nudge on the 3rd identical failure
 SESSION_TTL = 6 * 3600  # 6 hours — wider than a typical session
+MAX_ENTRIES = 200     # hard cap on state file size — evict oldest if exceeded
+
+# Strong error markers — an output must contain at least one of these to be
+# considered a failure worth fingerprinting. This prevents "every successful
+# bash output that happens to mention 'error_loop_state.json' from getting
+# tracked as a repeating error". Prefixes are case-sensitive for Python
+# exceptions; lowercase tokens are case-insensitive.
+_EXCEPTION_NAMES = (
+    "Error:", "Exception:", "Traceback (most recent call last)",
+    "SyntaxError", "ValueError", "KeyError", "TypeError", "AttributeError",
+    "NameError", "IndexError", "ZeroDivisionError", "ImportError",
+    "ModuleNotFoundError", "FileNotFoundError", "PermissionError",
+    "ConnectionError", "TimeoutError", "RuntimeError", "AssertionError",
+    "OSError", "IOError",
+)
+_FAIL_TOKENS = (
+    " error:", "error: ", "errno ", "fatal:", "failed:", "failure:",
+    "command not found", "no such file", "permission denied",
+    "connection refused", "cannot access", "is not a", "cannot open",
+    "segfault", "core dumped", "broken pipe", "address already in use",
+    "exit code", "exit status", "killed", "aborted",
+    "404 not found", "500 internal server", "503 service", "bad gateway",
+)
 
 
 # Regexes that normalize common noise out of error signatures so
@@ -80,6 +103,34 @@ class LoopState:
             if isinstance(v, dict) and "fingerprint" in v
         }
         return cls(entries=entries)
+
+
+def looks_like_failure(text: str) -> bool:
+    """
+    Return True if `text` shows strong evidence of a failure.
+
+    This is the gate that prevents observe() from recording every successful
+    bash output as a potential "error loop". We require at least one strong
+    marker: a Python exception class name, a unix error token, or an HTTP
+    error code. Plain words like "error" in a file path do NOT qualify.
+
+    Tuned to be conservative: we'd rather miss some failures than nudge on
+    noise. If a real failure slips past, the agent will retry and hit it
+    again — the 3rd occurrence still catches a genuine loop.
+    """
+    if not text:
+        return False
+    # Fast path: check the last 2KB — errors usually at the tail
+    tail = text[-2048:] if len(text) > 2048 else text
+    low = tail.lower()
+    # Strong Python / JS / Rust exception signals (case-sensitive)
+    for marker in _EXCEPTION_NAMES:
+        if marker in tail:
+            return True
+    for token in _FAIL_TOKENS:
+        if token in low:
+            return True
+    return False
 
 
 def fingerprint_error(text: str) -> tuple[str, str]:
@@ -139,11 +190,21 @@ def _save_state(state: LoopState) -> None:
 
 
 def _gc(state: LoopState) -> None:
-    """Evict stale entries so the state file stays bounded."""
+    """
+    Evict stale entries so the state file stays bounded. Two passes:
+      1. Drop anything older than SESSION_TTL.
+      2. If still over MAX_ENTRIES, drop the oldest last_seen until under cap.
+    """
     now = time.time()
     state.entries = {
         k: v for k, v in state.entries.items() if not v.is_stale(now)
     }
+    if len(state.entries) > MAX_ENTRIES:
+        # Keep the most-recently-seen MAX_ENTRIES, drop the rest
+        sorted_entries = sorted(
+            state.entries.items(), key=lambda kv: kv[1].last_seen, reverse=True,
+        )
+        state.entries = dict(sorted_entries[:MAX_ENTRIES])
 
 
 def observe(tool: str, output: str) -> str | None:
@@ -158,6 +219,12 @@ def observe(tool: str, output: str) -> str | None:
     if not CFG.error_loop_nudges:
         return None
     if not output or len(output) < 20:
+        return None
+
+    # Gate: only fingerprint real failures, not every successful bash output.
+    # Fixes the noise-pollution bug observed 2026-04-07 where the state file
+    # accumulated 80+ entries per session from successful commands.
+    if not looks_like_failure(output):
         return None
 
     fp, preview = fingerprint_error(output)
@@ -186,6 +253,10 @@ def observe(tool: str, output: str) -> str | None:
         entry.nudged_at_count = entry.count
         note("error_loop", f"nudged on count={entry.count} fp={fp}", tool=tool)
 
+    # Post-insert gc: ensure final persisted state is <= MAX_ENTRIES.
+    # (_gc ran pre-insert to bound pre-insert size, but the insert itself
+    # can push us one over; this second pass keeps the steady state exact.)
+    _gc(state)
     _save_state(state)
     return nudge
 

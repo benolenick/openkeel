@@ -7,3 +7,10 @@ build/
 
 # Local-only profiles (not shipped to GitHub)
 profiles/pentesting.yaml
+
+# Token saver — orphaned sqlite file from an older architecture.
+# Full-codebase grep found no reader/writer; active ledger lives at
+# ~/.openkeel/token_ledger.db.
+openkeel/token_saver/audit.db
+# Token saver — LocalEdit backup files
+*.localedit.bak
