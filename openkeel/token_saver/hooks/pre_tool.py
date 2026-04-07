@@ -464,6 +464,29 @@ def handle_read(tool_input: dict) -> dict | None:
             f"=== LAST 30 LINES ===\n{tail}"
         )
 
+        # v4: try LLM-generated semantic skeleton as a tighter alternative
+        if os.environ.get("TOKEN_SAVER_V4") == "1" and len(content) > 4000:
+            try:
+                from openkeel.token_saver_v4.engines import llm_engines as _v4e
+                skel = _v4e.semantic_skeleton(content, file_path)
+                if skel and len(skel) < len(compressed):
+                    v4_block = (
+                        f"[TOKEN SAVER v4] Semantic skeleton of {total_lines}-line file "
+                        f"(LLM-generated, ~{100 - int(100*len(skel)/len(content))}% smaller than raw). "
+                        f"Use Read with offset/limit for specific sections.\n\n"
+                        f"File: {file_path}\n\n{skel}"
+                    )
+                    if len(v4_block) < len(compressed):
+                        _record_savings(
+                            "v4_semantic_skeleton", "Read",
+                            len(content), max(0, len(content) - len(v4_block)),
+                            f"first-read skeleton: {total_lines}L → LLM skeleton",
+                            file_path,
+                        )
+                        return {"decision": "block", "reason": v4_block}
+            except Exception:
+                pass  # fall through to head+structure+tail
+
         saved = max(0, len(content) - len(compressed))
         if saved > 2000:
             _record_savings(
@@ -940,6 +963,19 @@ def handle_grep(tool_input: dict) -> dict | None:
             return {"decision": "block", "reason": filtered}
     except Exception:
         pass
+
+    # v4: semantic clustering for many-match greps (runs before rule summarizer)
+    if os.environ.get("TOKEN_SAVER_V4") == "1" and raw_len > _MIN_LLM_SUMMARIZE:
+        try:
+            from openkeel.token_saver_v4.engines import llm_engines as _v4e
+            clustered = _v4e.grep_cluster(pattern, output, min_matches=30)
+            if clustered and len(clustered) < raw_len * 0.5:
+                saved = raw_len - len(clustered)
+                _record_savings("v4_grep_cluster", "Grep", raw_len, saved,
+                                f"v4 grep cluster '{pattern[:40]}': {raw_len}→{len(clustered)}")
+                return {"decision": "block", "reason": clustered}
+        except Exception:
+            pass
 
     # Try LLM summarization for large grep results — aggressive threshold
     if raw_len > _MIN_LLM_SUMMARIZE:
