@@ -45,6 +45,7 @@ from openkeel.calcifer.ladder_window import (
     _cloud_monitor, _local_monitor,
     DARK_BG, PANEL_BG, BORDER, DIM_TEXT, LIGHT_TXT, ORANGE,
 )
+from openkeel.calcifer.conductor import Conductor, ConductorState
 
 # ── Runner config ────────────────────────────────────────────────────────────
 
@@ -87,6 +88,11 @@ RUNNER_CFG: dict[str, dict] = {
         "model": "claude-opus-4-6",
         "kind": "anthropic",
         "color": "#cc5555",
+    },
+    "conductor": {
+        "label": "conductor",
+        "kind": "meta",
+        "color": "#888888",
     },
 }
 
@@ -491,6 +497,10 @@ class LadderChatWindow(QMainWindow):
         self._active_bubble: MessageWidget | None = None
         self._full_response: list[str] = []
 
+        # ── Conductor ──
+        self._conductor = Conductor(conversation_id=SESSION_ID)
+        self._first_message = True
+
         # ── Frame ──
         frame = QFrame()
         frame.setObjectName("frame")
@@ -664,11 +674,17 @@ class LadderChatWindow(QMainWindow):
         context = build_context(text)
         full_user = f"{text}\n\n{context}" if context else text
 
+        # Conductor: init on first message, then advise routing
+        if self._first_message:
+            self._conductor.initialize_from_message(text)
+            self._first_message = False
+
         # Show raw user text in UI
         self._add_bubble("user", text)
 
-        # Route
+        # Route — let conductor optionally escalate
         runner_id, band = route(text)
+        runner_id = self._conductor.suggest_routing(text, runner_id)
         self._active_runner = runner_id
         cfg = RUNNER_CFG[runner_id]
         self._route_lbl.setText(
@@ -719,6 +735,15 @@ class LadderChatWindow(QMainWindow):
     def _on_done(self, runner_id: str, full_text: str) -> None:
         save_turn(SESSION_ID, "assistant", full_text)
         self._history.append({"role": "assistant", "content": full_text})
+
+        # Conductor observes response — may inject an intervention note
+        should_intervene, reason = self._conductor.observe_response(full_text, runner_id)
+        if should_intervene and reason:
+            note = self._add_bubble("conductor", "", "conductor")
+            note.set_text(f"🔥 conductor: {reason}")
+            # Update toolbar status
+            self._route_lbl.setText(self._conductor.status_line())
+
         self._busy = False
         self._send_btn.setEnabled(True)
         self._active_bubble = None
