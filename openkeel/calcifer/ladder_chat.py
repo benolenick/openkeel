@@ -319,8 +319,18 @@ def _stream_anthropic(
 
 class _Bridge(QObject):
     token   = Signal(str)
-    done    = Signal(str, str)   # (runner_id, full_text)
+    done    = Signal(str, str)
     error   = Signal(str)
+    
+    def safe_emit_token(self, t: str):
+        """Emit from any thread — marshals to main thread."""
+        QTimer.singleShot(0, lambda: self.token.emit(t))
+    
+    def safe_emit_done(self, runner_id: str, full_text: str):
+        QTimer.singleShot(0, lambda: self.done.emit(runner_id, full_text))
+    
+    def safe_emit_error(self, msg: str):
+        QTimer.singleShot(0, lambda: self.error.emit(msg))
 
 
 # ── Message bubble ────────────────────────────────────────────────────────────
@@ -699,24 +709,36 @@ class LadderChatWindow(QMainWindow):
                 kind = RUNNER_CFG[runner_id]["kind"]
                 with open("/tmp/calcifer_send.log", "a") as f:
                     f.write(f"  calling _{kind}\n")
+
+                # Buffer tokens, emit to main thread after
+                tokens = []
+
                 if kind == "ollama":
                     full = _stream_ollama(
                         runner_id, history_msgs,
-                        lambda t: QTimer.singleShot(0, lambda t=t: bridge.token.emit(t)),
+                        lambda t: tokens.append(t),
                     )
                 else:
                     full = _stream_anthropic(
                         runner_id, history_msgs,
-                        lambda t: QTimer.singleShot(0, lambda t=t: bridge.token.emit(t)),
+                        lambda t: tokens.append(t),
                     )
+
                 with open("/tmp/calcifer_send.log", "a") as f:
-                    f.write(f"  got {len(full)} chars\n")
-                QTimer.singleShot(0, lambda: bridge.done.emit(runner_id, full))
+                    f.write(f"  got {len(full)} chars, {len(tokens)} tokens\n")
+
+                # Marshal tokens back to main thread
+                for t in tokens:
+                    QTimer.singleShot(0, lambda token=token: self._on_token(token))
+
+                # Signal completion
+                QTimer.singleShot(0, lambda rid=runner_id, ft=full: self._on_done(rid, ft))
+
             except Exception as e:
                 with open("/tmp/calcifer_send.log", "a") as f:
                     import traceback
                     f.write(f"  ERROR: {e}\n{traceback.format_exc()}\n")
-                QTimer.singleShot(0, lambda: bridge.error.emit(str(e)))
+                QTimer.singleShot(0, lambda msg=str(e): self._on_error(msg))
 
         threading.Thread(target=_run, daemon=True).start()
 
