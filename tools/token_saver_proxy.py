@@ -53,6 +53,52 @@ def _log(entry: dict) -> None:
         pass
 
 
+async def _startup_self_test() -> None:
+    """Fail fast on local misconfiguration, warn on upstream reachability.
+
+    This is intentionally split into:
+    - hard failures for local invariants the proxy itself controls
+    - soft warnings for upstream connectivity, which may fluctuate
+    """
+    route_paths = {
+        getattr(route, "path", None)
+        for route in app.router.routes
+        if getattr(route, "path", None)
+    }
+
+    required_local_routes = {"/health", "/", "/{path:path}"}
+    missing = sorted(required_local_routes - route_paths)
+    if missing:
+        raise RuntimeError(f"startup self-test failed: missing routes {missing}")
+
+    try:
+        TRACE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with TRACE_PATH.open("a"):
+            pass
+    except Exception as e:
+        raise RuntimeError(f"startup self-test failed: trace path not writable: {e}") from e
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0), http2=True) as probe:
+            resp = await probe.get(UPSTREAM)
+        _log({
+            "event": "startup_self_test",
+            "ok": True,
+            "upstream_status": resp.status_code,
+        })
+    except Exception as e:
+        _log({
+            "event": "startup_self_test",
+            "ok": True,
+            "warning": f"upstream_probe_failed:{type(e).__name__}",
+        })
+
+
+@app.on_event("startup")
+async def startup_check() -> None:
+    await _startup_self_test()
+
+
 # --- Rewriters (try-safe, fall-through on exception) ---
 STRIP_PREFIXES = (
     "<system-reminder>\nSessionStart:startup hook success: [TOKEN SAVER]",
@@ -461,6 +507,30 @@ def _extract_request_stats(body: bytes) -> dict:
         "tools_chars": tools_len,
         "body_chars": len(body),
         "has_cache_control": b"cache_control" in body,
+    }
+
+
+@app.get("/health")
+async def health():
+    """Local liveness endpoint for Claude and operator checks.
+
+    This must never proxy upstream. If /health falls through to the catch-all
+    proxy route, local health checks can hang on Anthropic and make the whole
+    Claude path appear dead before any real request is attempted.
+    """
+    return {
+        "ok": True,
+        "service": "token_saver_proxy",
+        "upstream": UPSTREAM,
+    }
+
+
+@app.get("/")
+async def root():
+    """Small local root endpoint for manual smoke tests."""
+    return {
+        "ok": True,
+        "service": "token_saver_proxy",
     }
 
 

@@ -50,7 +50,7 @@ class BandClassifier:
 
     # Band B patterns: single deterministic read/list
     BAND_B_PATTERNS = [
-        r"^(read|show|cat|display|print) (\S+)$",
+        r"^(read|show|show me|cat|display|print) (.*?)(\S+)$",  # "show me /path"
         r"^(list|ls|dir) (\S+)?$",
         r"^(grep|search|find) (for |in )?(.+) in (.+)$",
         r"^(what'?s in|what'?s the content of) (\S+)",
@@ -58,13 +58,14 @@ class BandClassifier:
         r"^(open|view) (.+)\.?$",
     ]
 
-    # Band D patterns: design/complex reasoning/architecture
+    # Band D patterns: design/complex reasoning/architecture (high complexity)
     BAND_D_PATTERNS = [
-        r"(design|architect|plan|structure|refactor) (this|the|a) (.{20,})",
-        r"^(how would you|how should|what'?s the best way to) (.{30,})",
-        r"(explain|describe|write an essay about) (\w+)",
-        r"^why (is|does|should)",
-        r"(audit|review|security|performance|optimization)",
+        r"(design|architect) (a |the |this )?(.{15,})",  # explicit design/architect
+        r"^(how would you|how should|how can you) (build|design|architect|implement|create) (.{20,})",  # build/design questions
+        r"(build|implement) (a |the )?(distributed|scalable|recommendation|cache|system|service|queue|database|engine)",  # complex systems
+        r"(write an essay about|compare|contrast) (\w+)",  # essays and analysis
+        r"^why (is|does|should|would)",  # deep reasoning
+        r"(security audit|code audit|architecture review|design review)",  # explicit reviews
     ]
 
     # Band E patterns: explicit escalation signals
