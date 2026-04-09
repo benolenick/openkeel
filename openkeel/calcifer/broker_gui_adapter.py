@@ -1,27 +1,39 @@
 #!/usr/bin/env python3
-"""BrokerGUIAdapter: thin layer between ladder_chat and the broker."""
+"""BrokerGUIAdapter: thin layer between ladder_chat and the broker.
 
+Flow: classify → plan (or skip) → execute → judge → respond
+"""
+
+import uuid
 from openkeel.calcifer.broker import Broker
-from openkeel.calcifer.contracts import IntentionPacket, TaskSession
+from openkeel.calcifer.contracts import IntentionPacket, TaskSession, Task, StepSpec, Mode
+from openkeel.calcifer.band_classifier import BandClassifier, Band, BandRouter
 from openkeel.calcifer.opus_planning_agent import OpusPlanningAgent
+from openkeel.calcifer.sonnet_planning_agent import SonnetPlanningAgent
 from openkeel.calcifer.opus_judgment_agent import OpusJudgmentAgent
-from openkeel.calcifer.intention_broker import get_broker as get_intention_broker
 
 
 class BrokerGUIAdapter:
-    """Orchestrate: plan → execute → judge → respond."""
+    """Orchestrate: classify → plan (maybe) → execute → judge → respond."""
 
     def __init__(self):
         self.broker = Broker()
-        self.planner = OpusPlanningAgent()
+        self.classifier = BandClassifier()
+        self.opus_planner = OpusPlanningAgent()
+        self.sonnet_planner = SonnetPlanningAgent()
         self.judge = OpusJudgmentAgent()
         self._current_session: dict[str, TaskSession] = {}
         self._token_log = []
 
     def handle_user_message(self, user_message: str, session_id: str) -> str:
-        """Process a user message end-to-end."""
-        import uuid
+        """Process a user message end-to-end with band classification."""
         self._token_log = []
+
+        # Step 0: Classify message into band
+        classification = self.classifier.classify(user_message)
+        band = classification.band
+        self._token_log.append(f"[0] Band classified: {band.value} ({classification.reasoning})")
+        self._token_log.append(f"    Confidence: {classification.confidence}")
 
         # Step 1: Create intention from user message
         intention = IntentionPacket(
@@ -31,9 +43,20 @@ class BrokerGUIAdapter:
         )
         self._token_log.append(f"[1] Intention created: goal_id={intention.goal_id}")
 
-        # Step 2: Opus derives plan (OPUS CALL #1)
-        self._token_log.append("[2] → OpusPlanningAgent.plan() [OPUS subprocess]")
-        task, steps = self.planner.plan(intention)
+        # Step 2: Plan (or skip for trivial bands)
+        if classification.skip_planner:
+            # Band A/B: skip planner, create direct step
+            self._token_log.append(f"[2] Skipping planner (Band {band.name})")
+            task, steps = self._create_direct_step(band, intention)
+        else:
+            # Band C/D/E: use appropriate planner
+            if band == Band.C:
+                self._token_log.append("[2] → SonnetPlanningAgent.plan() [SONNET subprocess]")
+                task, steps = self.sonnet_planner.plan(intention)
+            else:  # Band D or E
+                self._token_log.append("[2] → OpusPlanningAgent.plan() [OPUS subprocess]")
+                task, steps = self.opus_planner.plan(intention)
+
         self._token_log.append(f"[2] ← Plan: {len(steps)} steps")
         for i, step in enumerate(steps):
             self._token_log.append(f"    {i}. {step.step_kind} (mode={step.replacement_mode.name})")
@@ -68,6 +91,34 @@ class BrokerGUIAdapter:
         # Step 5: Return final result
         self._log_token_summary()
         return self._format_response(session, "COMPLETE")
+
+    def _create_direct_step(self, band: Band, intention: IntentionPacket) -> tuple[Task, list[StepSpec]]:
+        """Create a direct step for Band A/B (no planning)."""
+        task = Task(
+            id=str(uuid.uuid4())[:8],
+            title="Direct Task",
+            objective=intention.intended_outcome,
+            acceptance_criteria=["completed"],
+        )
+
+        # Band A: chat (use Haiku)
+        # Band B: read (use Direct)
+        if band == Band.A:
+            step_kind = "reason"
+            mode = Mode.SONNET  # Haiku not in mode hierarchy yet, use Sonnet
+        else:  # Band B
+            step_kind = "read"
+            mode = Mode.DIRECT
+
+        step = StepSpec(
+            step_id=f"{task.id}_s0",
+            step_kind=step_kind,
+            task_class=band.value,
+            replacement_mode=mode,
+            inputs={"prompt": intention.user_request},
+        )
+
+        return task, [step]
 
     def _log_token_summary(self) -> None:
         """Write token log to file and print summary."""
