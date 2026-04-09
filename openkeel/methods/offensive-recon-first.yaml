@@ -1,0 +1,59 @@
+name: offensive-recon-first
+description: "Recon-first offensive methodology. Scan, enumerate, research, then exploit."
+version: "1"
+
+rounds:
+  - name: recon
+    description: "Network discovery and port scanning"
+    goal: "Map the attack surface — ports, services, versions"
+    allowed_activities: [recon]
+    evidence_gate: null
+    transition:
+      type: heuristic
+      min_commands: 3
+      idle_commands: 8
+      auto_advance: true
+    max_blind_attempts: 5
+    research_required: false
+
+  - name: enumerate
+    description: "Service-specific enumeration"
+    goal: "Deep-dive services, find misconfigs, gather creds/usernames"
+    allowed_activities: [enumeration, dir_bruteforce]
+    evidence_gate:
+      min_confidence: PARTIAL
+      auto_query: true
+    transition:
+      type: heuristic
+      min_commands: 5
+      idle_commands: 10
+      auto_advance: true
+    max_blind_attempts: 3
+    max_attempts_per_hypothesis: 3
+    research_required: true
+
+  - name: exploit
+    description: "Active exploitation — initial access"
+    goal: "Get a foothold on the target"
+    allowed_activities: [exploitation, password_attack]
+    evidence_gate:
+      min_confidence: GOOD
+      auto_query: true
+    transition:
+      type: manual
+    max_blind_attempts: 4
+    max_attempts_per_hypothesis: 2
+    research_required: true
+
+  - name: post-exploit
+    description: "Privilege escalation and lateral movement"
+    goal: "Root/DA or move to the next target"
+    allowed_activities: [privesc]
+    evidence_gate:
+      min_confidence: PARTIAL
+      auto_query: true
+    transition:
+      type: manual
+    max_blind_attempts: 3
+    max_attempts_per_hypothesis: 2
+    research_required: true

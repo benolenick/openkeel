@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Nova</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body, html { width: 1024px; height: 768px; background: #080808; color: #ccc; font-family: 'Courier New', monospace; overflow: hidden; }
+
+    /* ── Layout: Avatar left, Options right ── */
+    #main { display: flex; width: 100%; height: 100%; }
+
+    /* Left panel: Nova's face + subtitle */
+    #nova-panel {
+      width: 45%; height: 100%; position: relative; border-right: 1px solid #1a1a1a;
+    }
+    #avatar { width: 100%; height: 75%; }
+    #subtitle-area {
+      height: 25%; padding: 8px; display: flex; flex-direction: column;
+      justify-content: center; overflow: hidden; background: #0a0a0a;
+    }
+    #subtitle {
+      font-size: 14px; color: #0a0; line-height: 1.4;
+      text-shadow: 0 0 5px rgba(0,170,0,0.3);
+    }
+    #user-text {
+      font-size: 12px; color: #666; margin-top: 6px; font-style: italic;
+    }
+
+    /* Right panel: Options + Status */
+    #right-panel {
+      width: 55%; height: 100%; display: flex; flex-direction: column;
+    }
+
+    /* Status bar */
+    #status-bar {
+      height: 30px; background: #0c0c0c; border-bottom: 1px solid #1a1a1a;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 10px; font-size: 10px; color: #555;
+    }
+    .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #0a0;
+      display: inline-block; margin-right: 5px; box-shadow: 0 0 4px #0a0; }
+
+    /* Options grid — the intent mesh touch area */
+    #options-area {
+      flex: 1; padding: 8px; display: flex; flex-direction: column;
+      gap: 8px; overflow-y: auto;
+    }
+    #options-header {
+      font-size: 10px; color: #444; letter-spacing: 2px;
+    }
+    #options-grid {
+      display: flex; flex-direction: column; gap: 8px; flex: 1;
+    }
+
+    .option-btn {
+      background: #111; border: 2px solid #222; border-radius: 8px;
+      padding: 14px 16px; cursor: pointer; transition: all 0.2s;
+      display: flex; flex-direction: column; gap: 4px;
+      touch-action: manipulation; /* prevent double-tap zoom */
+      -webkit-user-select: none; user-select: none;
+    }
+    .option-btn:hover, .option-btn:active {
+      border-color: #0a0; background: #0a150a;
+    }
+    .option-btn .opt-label {
+      font-size: 15px; color: #0a0; font-weight: bold;
+    }
+    .option-btn .opt-desc {
+      font-size: 11px; color: #666;
+    }
+
+    .option-btn.confirmed {
+      border-color: #0a0; background: #0a200a;
+    }
+    .option-btn.confirmed .opt-label::before {
+      content: "✓ "; color: #0f0;
+    }
+
+    /* System status strip */
+    #systems-strip {
+      height: 60px; background: #0c0c0c; border-top: 1px solid #1a1a1a;
+      display: flex; gap: 3px; padding: 4px; overflow-x: auto;
+    }
+    .sys-chip {
+      background: #111; border: 1px solid #1a1a1a; border-radius: 4px;
+      padding: 2px 6px; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; min-width: 60px;
+      font-size: 8px; color: #555;
+    }
+    .sys-chip .chip-dot {
+      width: 6px; height: 6px; border-radius: 50%; margin-bottom: 2px;
+      transition: all 0.3s;
+    }
+    .sys-chip[data-status="healthy"] .chip-dot { background: #0a0; box-shadow: 0 0 3px #0a0; }
+    .sys-chip[data-status="warning"] .chip-dot { background: #fa0; box-shadow: 0 0 3px #fa0; }
+    .sys-chip[data-status="critical"] .chip-dot { background: #f00; box-shadow: 0 0 3px #f00; }
+    .sys-chip[data-status="healthy"] { border-color: #0a2a0a; }
+    .sys-chip[data-status="warning"] { border-color: #3a2a00; }
+    .sys-chip[data-status="critical"] { border-color: #3a0000; }
+
+    /* Mic button */
+    #mic-bar {
+      height: 50px; background: #0a0a0a; border-top: 1px solid #1a1a1a;
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+    }
+    #mic-btn {
+      width: 40px; height: 40px; border-radius: 50%; border: 2px solid #333;
+      background: transparent; color: #666; font-size: 18px; cursor: pointer;
+    }
+    #mic-btn.recording { border-color: #f00; color: #f00; animation: blink 1s infinite; }
+    @keyframes blink { 0%,100%{opacity:1}50%{opacity:0.3} }
+    #mic-status { font-size: 10px; color: #333; }
+  </style>
+
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "talkinghead": "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.7/modules/talkinghead.mjs"
+  }}
+  </script>
+
+  <script type="module">
+    import { TalkingHead } from "talkinghead";
+    let head, ws, isRecording = false, mediaRecorder, audioChunks = [];
+
+    const secSystems = [
+      {id:"suricata", label:"SURICATA"}, {id:"argus", label:"ARGUS"},
+      {id:"wazuh", label:"WAZUH"}, {id:"firewall", label:"FIREWALL"},
+      {id:"network", label:"NETWORK"}, {id:"threat_intel", label:"THREAT"},
+      {id:"endpoints", label:"ENDPOINTS"}, {id:"clove", label:"CLOVE"},
+      {id:"shallotd", label:"CORE"}, {id:"dns_sec", label:"DNS"},
+    ];
+
+    function buildSystemStrip() {
+      const strip = document.getElementById('systems-strip');
+      strip.innerHTML = '';
+      secSystems.forEach(sys => {
+        const chip = document.createElement('div');
+        chip.className = 'sys-chip';
+        chip.id = `chip-${sys.id}`;
+        chip.dataset.status = 'healthy';
+        chip.innerHTML = `<div class="chip-dot"></div><span>${sys.label}</span>`;
+        strip.appendChild(chip);
+      });
+    }
+
+    function showOptions(options) {
+      const grid = document.getElementById('options-grid');
+      grid.innerHTML = '';
+      document.getElementById('options-header').textContent = 'OPTIONS';
+      options.forEach(opt => {
+        const btn = document.createElement('div');
+        btn.className = 'option-btn';
+        btn.innerHTML = `<span class="opt-label">${opt.label}</span><span class="opt-desc">${opt.description || ''}</span>`;
+        btn.addEventListener('click', () => {
+          // Visual confirm
+          grid.querySelectorAll('.option-btn').forEach(b => b.classList.remove('confirmed'));
+          btn.classList.add('confirmed');
+          // Send to server
+          ws.send(JSON.stringify({type: "option_selected", option: opt}));
+          // Also send as text for the brain
+          ws.send(JSON.stringify({type: "text", text: opt.label}));
+        });
+        // Touch support
+        btn.addEventListener('touchstart', (e) => e.currentTarget.style.transform = 'scale(0.97)');
+        btn.addEventListener('touchend', (e) => e.currentTarget.style.transform = '');
+        grid.appendChild(btn);
+      });
+    }
+
+    // Avatar speech
+    async function speakAvatar(data) {
+      if (!head || !data.audio) return;
+      const emoMap = {neutral:"neutral",amused:"happy",thinking:"neutral",concerned:"sad",impressed:"happy"};
+      if (data.emotion && emoMap[data.emotion]) head.setMood(emoMap[data.emotion]);
+      try {
+        if (head.audioCtx.state === 'suspended') await head.audioCtx.resume();
+        const bytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0));
+        const buf = await head.audioCtx.decodeAudioData(bytes.buffer.slice(0));
+        const obj = { audio: buf };
+        if (data.words?.length) {
+          obj.words = data.words.map(w=>w.word);
+          obj.wtimes = data.words.map(w=>w.start);
+          obj.wdurations = data.words.map(w=>w.duration);
+        } else if (data.text) {
+          const w=data.text.split(/\s+/); const ms=buf.duration*1000; const p=ms/w.length;
+          obj.words=w; obj.wtimes=w.map((_,i)=>i*p); obj.wdurations=w.map(()=>p*0.9);
+        }
+        head.speakAudio(obj); head.lookAtCamera(500);
+      } catch(e) { console.error("Speak:", e); }
+    }
+
+    // WebSocket
+    function connectWS() {
+      ws = new WebSocket(`ws://${location.hostname}:8766`);
+      ws.onmessage = async (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          switch (data.type) {
+            case "nova_subtitle":
+              document.getElementById('subtitle').textContent = data.text;
+              break;
+            case "nova_speak":
+              try { await speakAvatar(data); } catch(e) { console.error(e); }
+              break;
+            case "show_options":
+              showOptions(data.options);
+              break;
+            case "state_update":
+              if (data.systems) {
+                for (const [sid, sys] of Object.entries(data.systems)) {
+                  const chip = document.getElementById(`chip-${sid}`);
+                  if (chip) chip.dataset.status = sys.status;
+                }
+              }
+              break;
+            case "user_text":
+              document.getElementById('user-text').textContent = `You: "${data.text}"`;
+              break;
+            case "phase_change":
+              break;
+          }
+        } catch(e) { console.error("WS error:", e); }
+      };
+      ws.onclose = () => setTimeout(connectWS, 2000);
+    }
+
+    // Audio recording
+    async function startRec() {
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({audio:true});
+        mediaRecorder = new MediaRecorder(s, {mimeType:'audio/webm'});
+        audioChunks = [];
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.start();
+        isRecording = true;
+        document.getElementById('mic-btn').classList.add('recording');
+        document.getElementById('mic-status').textContent = 'Listening...';
+      } catch(e) { console.error("Mic:", e); }
+    }
+    function stopRec() {
+      if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, {type:'audio/webm'});
+        const ab = await blob.arrayBuffer();
+        const ctx = new AudioContext({sampleRate:16000});
+        const dec = await ctx.decodeAudioData(ab);
+        const pcm = dec.getChannelData(0);
+        const wav = encWAV(pcm, 16000);
+        if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"audio", audio:ab2b64(wav)}));
+        mediaRecorder.stream.getTracks().forEach(t=>t.stop());
+        ctx.close();
+        document.getElementById('mic-status').textContent = 'Processing...';
+      };
+      mediaRecorder.stop();
+      isRecording = false;
+      document.getElementById('mic-btn').classList.remove('recording');
+    }
+    function encWAV(s,r){const b=new ArrayBuffer(44+s.length*2);const v=new DataView(b);const w=(v,o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};w(v,0,'RIFF');v.setUint32(4,36+s.length*2,true);w(v,8,'WAVE');w(v,12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,r,true);v.setUint32(28,r*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(v,36,'data');v.setUint32(40,s.length*2,true);for(let i=0;i<s.length;i++){let x=Math.max(-1,Math.min(1,s[i]));v.setInt16(44+i*2,x<0?x*0x8000:x*0x7FFF,true)}return b}
+    function ab2b64(b){let s='';const u=new Uint8Array(b);for(let i=0;i<u.byteLength;i++)s+=String.fromCharCode(u[i]);return btoa(s)}
+
+    // Init
+    document.addEventListener('DOMContentLoaded', async () => {
+      buildSystemStrip();
+
+      // Load avatar
+      try {
+        head = new TalkingHead(document.getElementById('avatar'), {lipsyncModules:["en"], cameraView:"head"});
+        await head.showAvatar({url:'../mirror_assets/avatar.glb', body:'F', avatarMood:'neutral', lipsyncLang:'en'});
+      } catch(e) { console.error("Avatar:", e); }
+
+      connectWS();
+
+      // Audio context resume on any interaction
+      document.addEventListener('click', () => { if (head?.audioCtx?.state === 'suspended') head.audioCtx.resume(); });
+      document.addEventListener('touchstart', () => { if (head?.audioCtx?.state === 'suspended') head.audioCtx.resume(); });
+
+      // Mic
+      const mic = document.getElementById('mic-btn');
+      mic.addEventListener('mousedown', () => { if (!isRecording) startRec(); });
+      mic.addEventListener('mouseup', () => { if (isRecording) stopRec(); });
+      mic.addEventListener('touchstart', (e) => { e.preventDefault(); if (!isRecording) startRec(); });
+      mic.addEventListener('touchend', (e) => { e.preventDefault(); if (isRecording) stopRec(); });
+
+      // Keyboard
+      document.addEventListener('keydown', e => { if (e.code === 'Space' && !e.repeat) { e.preventDefault(); if (!isRecording) startRec(); }});
+      document.addEventListener('keyup', e => { if (e.code === 'Space') { e.preventDefault(); if (isRecording) stopRec(); }});
+    });
+  </script>
+</head>
+<body>
+  <div id="main">
+    <div id="nova-panel">
+      <div id="avatar"></div>
+      <div id="subtitle-area">
+        <div id="subtitle">Starting up...</div>
+        <div id="user-text"></div>
+      </div>
+    </div>
+    <div id="right-panel">
+      <div id="status-bar">
+        <span><span class="live-dot"></span>NOVA PERSONAL</span>
+        <span id="clock"></span>
+      </div>
+      <div id="options-area">
+        <div id="options-header">READY</div>
+        <div id="options-grid">
+          <div class="option-btn" style="opacity:0.3;pointer-events:none">
+            <span class="opt-label">Speak or tap to begin</span>
+            <span class="opt-desc">Hold mic button or press SPACE to talk</span>
+          </div>
+        </div>
+      </div>
+      <div id="systems-strip"></div>
+      <div id="mic-bar">
+        <button id="mic-btn">🎤</button>
+        <span id="mic-status">Ready</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Clock
+    setInterval(() => {
+      document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+    }, 1000);
+  </script>
+</body>
+</html>

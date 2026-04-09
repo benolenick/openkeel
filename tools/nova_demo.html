@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Nova — Incident Response</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body, html { width: 100%; height: 100%; background: #080808; color: #ccc; font-family: 'Courier New', monospace; overflow: hidden; }
+
+    /* ── Top Bar ── */
+    #topbar {
+      position: absolute; top: 0; left: 0; right: 0; height: 32px;
+      background: #0c0c0c; border-bottom: 1px solid #1a1a1a;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 12px; font-size: 11px; z-index: 20;
+    }
+    .company { color: #555; letter-spacing: 4px; font-size: 10px; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+    .status-dot.healthy { background: #0a0; box-shadow: 0 0 4px #0a0; }
+    .status-dot.alarm { background: #f00; box-shadow: 0 0 8px #f00; animation: blink 0.5s infinite; }
+    @keyframes blink { 0%,100%{opacity:1}50%{opacity:0.3} }
+    #revenue-loss { color: #f44; font-weight: bold; font-size: 13px; display: none; }
+    #score-display { color: #0a0; display: none; font-size: 12px; }
+
+    /* ── Nova Row (avatar + issues) ── */
+    #nova-row {
+      position: absolute; top: 32px; left: 0; right: 0; height: 30%;
+      display: flex; overflow: hidden;
+    }
+    #avatar-col { width: 45%; position: relative; }
+    #avatar { width: 100%; height: 100%; }
+    #subtitle {
+      position: absolute; bottom: 6px; left: 3%; right: 3%;
+      text-align: center; font-size: 12px; color: #0a0;
+      text-shadow: 0 0 5px rgba(0,170,0,0.3); line-height: 1.3;
+      max-height: 40px; overflow: hidden; z-index: 5;
+    }
+    #orb-container {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      pointer-events: none; z-index: 6;
+    }
+
+    /* Issues Board */
+    #issues-col {
+      width: 55%; display: flex; flex-direction: column;
+      padding: 6px 8px; overflow: hidden; border-left: 1px solid #1a1a1a;
+    }
+    #issues-header { font-size: 10px; color: #444; letter-spacing: 2px; margin-bottom: 4px; }
+    #issues-list { flex: 1; overflow-y: auto; font-size: 11px; line-height: 1.7; }
+    #issues-list::-webkit-scrollbar { width: 2px; }
+    #issues-list::-webkit-scrollbar-thumb { background: #222; }
+    .issue-item { padding: 2px 5px; border-radius: 2px; margin-bottom: 1px; animation: issue-in 0.3s ease; }
+    @keyframes issue-in { from { opacity:0; transform:translateX(15px); } to { opacity:1; } }
+    .issue-item.critical { color: #f44; background: #1a0808; }
+    .issue-item.warning { color: #fa0; background: #1a1208; }
+    .issue-item.ok { color: #0a0; background: #081a08; }
+
+    /* ── Machine Grid: 5x2 ── */
+    #machine-grid {
+      position: absolute; top: calc(30% + 32px); left: 0; right: 0; bottom: 100px;
+      display: grid; grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(2, 1fr);
+      gap: 4px; padding: 4px;
+    }
+
+    .machine-box {
+      background: #0a0a0a; border: 2px solid #1a1a1a; border-radius: 5px;
+      display: flex; flex-direction: column; overflow: hidden;
+      transition: border-color 0.5s, box-shadow 0.5s;
+    }
+    .machine-header {
+      padding: 3px 6px; background: #0e0e0e; border-bottom: 1px solid #1a1a1a;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-shrink: 0;
+    }
+    .machine-name { font-size: 11px; color: #555; font-weight: bold; letter-spacing: 1px; }
+    .machine-dot { width: 7px; height: 7px; border-radius: 50%; transition: all 0.3s; }
+
+    .machine-terminal {
+      flex: 1; padding: 3px 5px; font-size: 9px; line-height: 1.4;
+      color: #333; overflow: hidden; background: #060606;
+      position: relative;
+    }
+    .machine-terminal .t-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .machine-terminal .t-cursor {
+      display: inline-block; width: 5px; height: 9px; background: #0a0; opacity: 0.5;
+      animation: cursor-blink 1s infinite;
+    }
+    @keyframes cursor-blink { 0%,100%{opacity:0.5}50%{opacity:0} }
+
+    /* Machine status colors */
+    .machine-box[data-status="healthy"] { border-color: #0a2a0a; }
+    .machine-box[data-status="healthy"] .machine-dot { background: #0a0; box-shadow: 0 0 3px #0a0; }
+    .machine-box[data-status="healthy"] .machine-name { color: #0a0; }
+
+    .machine-box[data-status="warning"], .machine-box[data-status="degraded"] { border-color: #3a2a00; }
+    .machine-box[data-status="warning"] .machine-dot, .machine-box[data-status="degraded"] .machine-dot { background: #fa0; box-shadow: 0 0 4px #fa0; }
+    .machine-box[data-status="warning"] .machine-name, .machine-box[data-status="degraded"] .machine-name { color: #fa0; }
+
+    .machine-box[data-status="critical"] { border-color: #3a0000; }
+    .machine-box[data-status="critical"] .machine-dot { background: #f00; box-shadow: 0 0 6px #f00; animation: blink 0.5s infinite; }
+    .machine-box[data-status="critical"] .machine-name { color: #f44; }
+
+    .machine-box[data-status="recovering"] { border-color: #002a2a; }
+    .machine-box[data-status="recovering"] .machine-dot { background: #0aa; box-shadow: 0 0 4px #0aa; }
+    .machine-box[data-status="recovering"] .machine-name { color: #0aa; }
+
+    .machine-box[data-status="offline"] { border-color: #222; opacity: 0.4; }
+
+    /* Agent-in-box glow */
+    .machine-box.agent-active { box-shadow: 0 0 15px var(--agent-color, #0a0); }
+
+    /* ── Orbs ── */
+    .orb {
+      position: absolute; width: 18px; height: 18px; border-radius: 50%; z-index: 6;
+      transition: all 1s cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+    .orb.returning { transition: all 0.4s cubic-bezier(0.7, 0, 0.3, 1); }
+    .orb.deployed { animation: orb-working 1.5s ease-in-out infinite; }
+    .orb.reporting { transition: all 0.3s; animation: orb-report 0.5s ease 2; }
+    @keyframes orb-working { 0%,100% { opacity:0.8; transform:scale(1); } 50% { opacity:1; transform:scale(1.15); } }
+    .orb .orb-glow {
+      width: 100%; height: 100%; border-radius: 50%;
+      animation: orb-float 3s ease-in-out infinite;
+    }
+    .orb .orb-label {
+      position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+      font-size: 7px; white-space: nowrap; color: #666;
+    }
+    @keyframes orb-float { 0%,100%{transform:translateY(0) scale(1);opacity:0.8}50%{transform:translateY(-4px) scale(1.1);opacity:1} }
+    @keyframes orb-report { 0%,100%{transform:scale(1)}50%{transform:scale(1.5);filter:brightness(1.6)} }
+
+    /* ── Action Bar ── */
+    #action-bar {
+      position: absolute; bottom: 0; left: 0; right: 0; height: 100px;
+      background: #0a0a0a; border-top: 1px solid #1a1a1a;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 6px; padding: 6px;
+    }
+    #decisions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+    .decision-btn {
+      background: #111; border: 2px solid #2a2a2a; color: #aaa; padding: 8px 18px;
+      font-family: 'Courier New'; font-size: 14px; cursor: pointer; border-radius: 4px;
+      transition: all 0.2s;
+    }
+    .decision-btn:hover { border-color: #0a0; color: #0a0; }
+    #start-drill-btn {
+      background: #0a150a; border: 2px solid #0a0; color: #0a0; padding: 10px 24px;
+      font-family: 'Courier New'; font-size: 15px; cursor: pointer; border-radius: 4px;
+      display: none;
+    }
+    #start-drill-btn:hover { background: #0a0; color: #000; }
+    #mic-area { display: flex; gap: 8px; align-items: center; }
+    #mic-btn {
+      width: 40px; height: 40px; border-radius: 50%; border: 2px solid #2a2a2a;
+      background: transparent; color: #666; font-size: 16px; cursor: pointer;
+    }
+    #mic-btn.recording { border-color: #f00; color: #f00; animation: blink 1s infinite; }
+    #status-text { font-size: 10px; color: #333; }
+    #reset-btn { position: absolute; bottom: 3px; left: 8px; background: none; border: 1px solid #222;
+      color: #333; padding: 2px 6px; font-size: 9px; cursor: pointer; font-family: 'Courier New'; display: none; }
+    .hint { position: absolute; bottom: 3px; right: 8px; font-size: 8px; color: #1a1a1a; }
+
+    /* ── Summary Popup ── */
+    #summary-overlay {
+      display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.92); z-index: 200;
+      flex-direction: column; align-items: center; justify-content: center; padding: 20px;
+    }
+    #summary-overlay.visible { display: flex; }
+    #summary-card {
+      background: #111; border: 2px solid #0a0; border-radius: 10px;
+      padding: 24px 32px; max-width: 500px; width: 90%; text-align: center;
+    }
+    #summary-card .grade-big {
+      font-size: 72px; font-weight: bold; margin: 10px 0;
+      text-shadow: 0 0 30px currentColor;
+    }
+    #summary-card .stats-row {
+      display: flex; justify-content: space-around; margin: 16px 0;
+      font-size: 14px; color: #888;
+    }
+    #summary-card .stat { text-align: center; }
+    #summary-card .stat .stat-val { font-size: 22px; color: #0a0; display: block; margin-bottom: 2px; }
+    #summary-card .breakdown { text-align: left; margin: 16px 0; font-size: 12px; color: #666; max-height: 150px; overflow-y: auto; }
+    #summary-card .breakdown div { padding: 3px 0; border-bottom: 1px solid #1a1a1a; }
+    #summary-card .breakdown .good { color: #0a0; }
+    #summary-card .breakdown .bad { color: #f44; }
+    #summary-card .breakdown .neutral { color: #888; }
+    #summary-card .play-again {
+      margin-top: 16px; background: #0a0; color: #000; border: none; padding: 12px 32px;
+      font-family: 'Courier New'; font-size: 16px; cursor: pointer; border-radius: 5px;
+    }
+    #summary-card .play-again:hover { background: #0c0; }
+  </style>
+
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "talkinghead": "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.7/modules/talkinghead.mjs"
+  }}
+  </script>
+
+  <script type="module">
+    import { TalkingHead } from "talkinghead";
+    let head, ws, isRecording = false, mediaRecorder, audioChunks = [], drillStartTime = null;
+
+    // ── System configs (switchable between game and live mode) ──
+    const GAME_SYSTEMS = {
+      order: ["web_server","app_server","database","cache","load_balancer",
+              "cdn","payment_api","auth_service","message_queue","dns"],
+      labels: {
+        web_server:"WEB SERVER", app_server:"APP SERVER", database:"DATABASE",
+        cache:"CACHE", load_balancer:"LOAD BAL", cdn:"CDN",
+        payment_api:"PAYMENT API", auth_service:"AUTH", message_queue:"MSG QUEUE", dns:"DNS"
+      },
+      title: "ORACLE LENS",
+    };
+
+    const LIVE_SYSTEMS = {
+      order: ["suricata","argus","wazuh","firewall","network",
+              "dns_sec","threat_intel","endpoints","clove","shallotd"],
+      labels: {
+        suricata:"SURICATA IDS", argus:"ARGUS ENDPOINT", wazuh:"WAZUH HIDS",
+        firewall:"PFSENSE FW", network:"NETWORK", dns_sec:"DNS SECURITY",
+        threat_intel:"THREAT INTEL", endpoints:"ENDPOINTS", clove:"CLOVE AGENT", shallotd:"SHALLOT CORE"
+      },
+      title: "SECURITY SHALLOTS",
+    };
+
+    let activeSystems = GAME_SYSTEMS;
+
+    // ── Build 5x2 machine grid ──
+    function buildMachines(config) {
+      if (config) activeSystems = config;
+      const grid = document.getElementById('machine-grid');
+      grid.innerHTML = '';
+      document.querySelector('.company').textContent = activeSystems.title;
+      activeSystems.order.forEach(sid => {
+        const box = document.createElement('div');
+        box.className = 'machine-box';
+        box.id = `machine-${sid}`;
+        box.dataset.status = 'healthy';
+        box.innerHTML = `
+          <div class="machine-header">
+            <span class="machine-name">${activeSystems.labels[sid] || sid}</span>
+            <span class="machine-dot"></span>
+          </div>
+          <div class="machine-terminal" id="term-${sid}">
+            <span class="t-cursor"></span>
+          </div>
+        `;
+        grid.appendChild(box);
+      });
+    }
+
+    // ── Terminal: add line to a machine's terminal ──
+    function addTermLine(sysId, text, color) {
+      const term = document.getElementById(`term-${sysId}`);
+      if (!term) return;
+      const cursor = term.querySelector('.t-cursor');
+      const line = document.createElement('div');
+      line.className = 't-line';
+
+      if (text.startsWith('nova@')) { line.style.color = color || '#0a0'; }
+      else if (text.startsWith('[!!]')) { line.style.color = '#f44'; addIssue(text.replace(/^\[!!\]\s*/, ''), 'critical'); }
+      else if (text.startsWith('[!]')) { line.style.color = '#fa0'; addIssue(text.replace(/^\[!\]\s*/, ''), 'warning'); }
+      else if (text.startsWith('[OK]')) { line.style.color = '#0a0'; addIssue(text.replace(/^\[OK\]\s*/, ''), 'ok'); }
+      else if (text.startsWith('[STUCK]') || text.startsWith('[REDIRECT]') || text.startsWith('[WARN]')) { line.style.color = '#f80'; }
+      else if (text.startsWith('--- SUMMARY')) { line.style.color = '#0aa'; line.style.fontWeight = 'bold'; }
+      else { line.style.color = '#555'; }
+
+      line.textContent = text;
+      if (cursor) term.insertBefore(line, cursor);
+      else term.appendChild(line);
+
+      // Keep last 15 lines — use faster method
+      while (term.childElementCount > 16) term.removeChild(term.firstElementChild);
+      term.scrollTop = 99999;
+    }
+
+    function clearMachineTerminal(sysId) {
+      const term = document.getElementById(`term-${sysId}`);
+      if (term) term.innerHTML = '<span class="t-cursor"></span>';
+    }
+
+    function setMachineStatus(sysId, status) {
+      const box = document.getElementById(`machine-${sysId}`);
+      if (box) box.dataset.status = status;
+    }
+
+    // ── Agent glow on machine box ──
+    function agentEnterMachine(sysId, color) {
+      const box = document.getElementById(`machine-${sysId}`);
+      if (box) {
+        box.style.setProperty('--agent-color', color);
+        box.classList.add('agent-active');
+      }
+    }
+    function agentLeaveMachine(sysId) {
+      const box = document.getElementById(`machine-${sysId}`);
+      if (box) box.classList.remove('agent-active');
+    }
+
+    // ── Issues Board ──
+    function addIssue(text, severity) {
+      const list = document.getElementById('issues-list');
+      const item = document.createElement('div');
+      item.className = `issue-item ${severity}`;
+      const icon = severity === 'critical' ? '🔴' : severity === 'warning' ? '🟡' : '🟢';
+      item.innerHTML = `${icon} ${text}`;
+      if (severity === 'ok') list.appendChild(item);
+      else { const first = list.querySelector('.issue-item.ok'); first ? list.insertBefore(item, first) : list.appendChild(item); }
+    }
+    function clearIssues() { document.getElementById('issues-list').innerHTML = ''; }
+
+    // ── Orbs ──
+    const orbData = {};
+    let currentOrbSystem = {}; // track which system each orb is at
+
+    function createOrbs(workers) {
+      const c = document.getElementById('orb-container');
+      c.querySelectorAll('.orb').forEach(o => o.remove());
+      let i = 0;
+      for (const [wid, w] of Object.entries(workers)) {
+        const orb = document.createElement('div');
+        orb.className = 'orb idle'; orb.id = `orb-${wid}`;
+        orb.innerHTML = `<div class="orb-glow" style="background:${w.color};box-shadow:0 0 10px ${w.color},0 0 20px ${w.color}44"></div><div class="orb-label" style="color:${w.color}">${w.name}</div>`;
+        c.appendChild(orb);
+        orbData[wid] = { element: orb, color: w.color };
+        i++;
+      }
+      startOrbOrbit();
+    }
+
+    let orbitInterval;
+    function startOrbOrbit() {
+      if (orbitInterval) clearInterval(orbitInterval);
+      const ids = Object.keys(orbData);
+      orbitInterval = setInterval(() => {
+        const c = document.getElementById('orb-container');
+        const rx = c.offsetWidth * 0.8, ry = c.offsetHeight * 0.4;
+        const t = Date.now() / 2500;
+        ids.forEach((wid, i) => {
+          const d = orbData[wid];
+          if (d.element.classList.contains('idle') && !d.element.classList.contains('reporting')) {
+            const angle = t + (i / ids.length) * Math.PI * 2;
+            d.element.style.left = (rx + Math.cos(angle) * 20 - 9) + 'px';
+            d.element.style.top = (ry + Math.sin(angle) * 14 - 9) + 'px';
+          }
+        });
+      }, 33);
+    }
+
+    function deployOrb(workerId, sysId) {
+      const d = orbData[workerId]; if (!d) return;
+      const box = document.getElementById(`machine-${sysId}`); if (!box) return;
+
+      // Leave previous machine
+      if (currentOrbSystem[workerId]) agentLeaveMachine(currentOrbSystem[workerId]);
+      currentOrbSystem[workerId] = sysId;
+
+      const rect = box.getBoundingClientRect();
+      const cRect = document.getElementById('orb-container').getBoundingClientRect();
+
+      d.element.classList.remove('idle', 'returning', 'reporting');
+      d.element.classList.add('deployed');
+      d.element.style.transition = 'all 0.8s cubic-bezier(0.25,0.1,0.25,1)';
+
+      // Park the orb at the top-center of the machine box
+      const targetX = rect.left - cRect.left + rect.width / 2 - 9;
+      const targetY = rect.top - cRect.top - 2;
+      d.element.style.left = targetX + 'px';
+      d.element.style.top = targetY + 'px';
+
+      // After arrival, lock it in place (no more transition drift from orbit loop)
+      d.deployedX = targetX;
+      d.deployedY = targetY;
+
+      // Glow the machine box
+      agentEnterMachine(sysId, d.color);
+    }
+
+    async function returnOrb(workerId, withReport = false) {
+      const d = orbData[workerId]; if (!d) return;
+
+      // Leave machine
+      if (currentOrbSystem[workerId]) { agentLeaveMachine(currentOrbSystem[workerId]); currentOrbSystem[workerId] = null; }
+
+      const c = document.getElementById('orb-container');
+      const nx = c.offsetWidth * 0.5, ny = c.offsetHeight * 0.4;
+
+      d.element.classList.remove('deployed');
+      d.element.classList.add('returning');
+      d.element.style.left = (nx - 9) + 'px';
+      d.element.style.top = (ny - 9) + 'px';
+
+      if (withReport) {
+        await new Promise(r => setTimeout(r, 500));
+        d.element.classList.remove('returning');
+        d.element.classList.add('reporting');
+        await new Promise(r => setTimeout(r, 1000));
+        d.element.classList.remove('reporting');
+      } else {
+        await new Promise(r => setTimeout(r, 400));
+      }
+
+      d.element.classList.remove('returning', 'reporting', 'deployed');
+      d.element.classList.add('idle');
+      d.element.style.transition = '';
+    }
+
+    function recallAllOrbs() {
+      for (const wid of Object.keys(orbData)) {
+        if (currentOrbSystem[wid]) agentLeaveMachine(currentOrbSystem[wid]);
+        currentOrbSystem[wid] = null;
+        orbData[wid].element.classList.remove('deployed', 'returning', 'reporting');
+        orbData[wid].element.classList.add('idle');
+        orbData[wid].element.style.transition = '';
+      }
+    }
+
+    // ── Avatar ──
+    async function speakAvatar(data) {
+      if (!head) { console.warn("No avatar head loaded"); return; }
+      if (!data.audio) { console.warn("No audio in nova_speak — text only:", data.text?.substring(0,40)); return; }
+      console.log("Nova speaking:", data.text?.substring(0,40), "audio:", data.audio?.length, "words:", data.words?.length);
+      const emoMap = {neutral:"neutral",amused:"happy",thinking:"neutral",concerned:"sad",impressed:"happy"};
+      if (data.emotion && emoMap[data.emotion]) head.setMood(emoMap[data.emotion]);
+      try {
+        // Ensure AudioContext is running (needs user gesture on some browsers)
+        if (head.audioCtx.state === 'suspended') {
+          await head.audioCtx.resume();
+          console.log("AudioContext resumed");
+        }
+        const bytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0));
+        const buf = await head.audioCtx.decodeAudioData(bytes.buffer.slice(0));
+        const obj = { audio: buf };
+        if (data.words?.length) {
+          obj.words = data.words.map(w => w.word);
+          obj.wtimes = data.words.map(w => w.start);
+          obj.wdurations = data.words.map(w => w.duration);
+        } else if (data.text) {
+          const w = data.text.split(/\s+/);
+          const ms = buf.duration * 1000;
+          const p = ms / w.length;
+          obj.words = w;
+          obj.wtimes = w.map((_, i) => i * p);
+          obj.wdurations = w.map(() => p * 0.9);
+        }
+        console.log("Calling speakAudio with", obj.words?.length, "words");
+        head.speakAudio(obj);
+        head.lookAtCamera(500);
+      } catch(e) { console.error("Speak error:", e); }
+    }
+
+    // ── Decisions ──
+    function showDecisions(options) {
+      const c = document.getElementById('decisions'); c.innerHTML = '';
+      options.forEach(opt => {
+        const btn = document.createElement('button'); btn.className = 'decision-btn';
+        btn.innerHTML = `${opt.label}${opt.desc ? '<br><small style="color:#555;font-size:10px">'+opt.desc+'</small>' : ''}`;
+        btn.onclick = () => { ws.send(JSON.stringify({type:"decision",decision:opt.id})); c.innerHTML = '<div style="color:#0a0;font-size:12px">Executing...</div>'; };
+        c.appendChild(btn);
+      });
+    }
+    function showStuckOptions(data) {
+      const c = document.getElementById('decisions');
+      c.innerHTML = '';
+      const header = document.createElement('div');
+      header.style.cssText = 'color:#f80;font-size:10px;margin-bottom:4px';
+      header.textContent = '⚠ DECISION NEEDED:';
+      c.appendChild(header);
+      data.options.forEach(opt => {
+        const btn = document.createElement('button');
+        btn.className = 'decision-btn';
+        btn.textContent = opt.label;
+        btn.addEventListener('click', () => {
+          ws.send(JSON.stringify({type:"text", text: opt.id || opt.label}));
+          c.innerHTML = '<div style="color:#0a0;font-size:11px">Confirmed...</div>';
+        });
+        c.appendChild(btn);
+      });
+      const hint = document.createElement('div');
+      hint.style.cssText = 'color:#333;font-size:9px;margin-top:4px';
+      hint.textContent = 'Or tell Nova with voice';
+      c.appendChild(hint);
+    }
+    function flashScore(bonus, reason) {
+      const el = document.getElementById('score-display'); el.style.display = 'inline';
+      el.textContent = `+${bonus} ${reason}`; el.style.color = '#0f0';
+    }
+    function showFinalScore(data) {
+      const el = document.getElementById('score-display'); el.style.display = 'inline';
+      const gc = {S:'#ff0',A:'#0f0',B:'#0a0',C:'#fa0',D:'#f80'};
+      el.innerHTML = `<span style="color:${gc[data.grade]||'#0a0'};font-size:15px;font-weight:bold">${data.grade}</span> Score: ${data.score} | ${data.time}s | $${data.loss.toLocaleString()} lost`;
+
+      // Show summary popup after a short delay
+      setTimeout(() => showSummaryPopup(data), 3000);
+    }
+
+    let gameLogEntries = [];
+
+    function showSummaryPopup(data) {
+      const gc = {S:'#ff0',A:'#0f0',B:'#0a0',C:'#fa0',D:'#f80'};
+      const subtitles = {
+        S: "Perfect incident management. You were born for this.",
+        A: "Excellent decisions under pressure. Very impressive.",
+        B: "Solid work. A few detours but you got there.",
+        C: "Room for improvement. The agents did most of the heavy lifting.",
+        D: "The agents handled it, but it was expensive. Study the playbook.",
+      };
+
+      document.getElementById('sum-grade').textContent = data.grade;
+      document.getElementById('sum-grade').style.color = gc[data.grade] || '#0a0';
+      document.getElementById('sum-subtitle').textContent = subtitles[data.grade] || "Incident resolved.";
+      document.getElementById('sum-score').textContent = data.score;
+      document.getElementById('sum-time').textContent = `${Math.floor(data.time/60)}:${(data.time%60).toString().padStart(2,'0')}`;
+      document.getElementById('sum-loss').textContent = `$${data.loss.toLocaleString()}`;
+      document.getElementById('sum-decisions').textContent = gameLogEntries.length;
+
+      // Build breakdown
+      const bd = document.getElementById('sum-breakdown');
+      bd.innerHTML = '';
+      gameLogEntries.forEach(entry => {
+        const div = document.createElement('div');
+        const cls = entry.score_change > 10 ? 'good' : entry.score_change < 0 ? 'bad' : 'neutral';
+        const sign = entry.score_change > 0 ? '+' : '';
+        div.className = cls;
+        div.textContent = `${entry.time}s | ${entry.detail} (${sign}${entry.score_change})`;
+        bd.appendChild(div);
+      });
+
+      document.getElementById('summary-overlay').classList.add('visible');
+    }
+
+    function closeSummary() {
+      document.getElementById('summary-overlay').classList.remove('visible');
+      gameLogEntries = [];
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: "reset"}));
+      }
+    }
+
+    // ── WebSocket ──
+    function connectWS() {
+      ws = new WebSocket(`ws://${location.hostname}:8765`);
+      ws.onmessage = async (event) => {
+        let data;
+        try { data = JSON.parse(event.data); } catch(e) { console.error("Bad JSON:", e); return; }
+        try { switch (data.type) {
+          case "state_update":
+            for (const [sid, sys] of Object.entries(data.systems)) setMachineStatus(sid, sys.status);
+            break;
+          case "system_update": setMachineStatus(data.system, data.status); break;
+          case "phase_change": handlePhase(data.phase); break;
+          case "nova_subtitle": document.getElementById('subtitle').textContent = data.text; break;
+          case "nova_speak": try { await speakAvatar(data); } catch(e) { console.error("speak error:", e); } break;
+          case "workers_idle": createOrbs(data.workers); break;
+          case "workers_deploy": createOrbs(data.workers); break;
+          case "orb_dispatch": deployOrb(data.worker, data.system); addTermLine(data.system, `── ${data.name} investigating ──`, data.color); break;
+          case "orb_return": returnOrb(data.worker, true); break;
+          case "terminal_line":
+            if (!window._tc) window._tc = 0;
+            window._tc++;
+            if (window._tc % 50 === 0) console.log(`Terminal lines received: ${window._tc}`);
+            addTermLine(data.system, data.text, data.color);
+            break;
+          case "issue_found": addIssue(data.text, data.severity); break;
+          case "issue_clear": addIssue(data.text, 'ok'); break;
+          case "worker_report": returnOrb(data.worker, true); break;
+          case "worker_stuck":
+            const st = document.getElementById(`machine-${data.system}`);
+            if (st) st.style.boxShadow = `0 0 15px ${data.color}88, inset 0 0 10px ${data.color}22`;
+            break;
+          case "show_stuck_options": showStuckOptions(data); break;
+          case "hide_stuck_options": document.getElementById('decisions').innerHTML = ''; document.querySelectorAll('.machine-box').forEach(b => b.style.boxShadow = ''); break;
+          case "show_decisions": showDecisions(data.options); break;
+          case "score_update": flashScore(data.bonus, data.reason); break;
+          case "final_score": showFinalScore(data); break;
+          case "log_entry": gameLogEntries.push(data); break;
+          case "game_log": console.log(`Game log saved: ${data.path} (${data.entries} entries)`); break;
+          case "revenue_update": document.getElementById('revenue-loss').textContent = `$${Math.round(data.loss).toLocaleString()} lost`; break;
+          case "user_text": document.getElementById('subtitle').textContent = `You: "${data.text}"`; break;
+          case "status": document.getElementById('status-text').textContent = data.text; break;
+        }
+        } catch(e) {
+          console.error("WS handler error:", e, "event:", data?.type);
+          if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"client_error", error: e.toString(), event_type: data?.type, stack: e.stack?.substring(0,500)}));
+        }
+      };
+      ws.onclose = () => setTimeout(connectWS, 2000);
+    }
+
+    function handlePhase(phase) {
+      const dot = document.getElementById('status-dot'), loss = document.getElementById('revenue-loss');
+      const drill = document.getElementById('start-drill-btn'), reset = document.getElementById('reset-btn');
+      const score = document.getElementById('score-display'), dec = document.getElementById('decisions');
+      if (phase === 'calm') {
+        dot.className = 'status-dot healthy'; loss.style.display = 'none'; score.style.display = 'none';
+        drill.style.display = 'block'; document.getElementById('start-live-btn').style.display = 'block'; reset.style.display = 'none'; dec.innerHTML = '';
+        recallAllOrbs(); clearIssues();
+        activeSystems.order.forEach(s => { clearMachineTerminal(s); setMachineStatus(s, 'healthy'); });
+      } else if (phase === 'alarm') {
+        dot.className = 'status-dot alarm'; loss.style.display = 'inline'; drill.style.display = 'none'; drillStartTime = Date.now();
+      } else if (phase === 'resolved') {
+        dot.className = 'status-dot healthy'; reset.style.display = 'block'; dec.innerHTML = ''; recallAllOrbs();
+      }
+    }
+
+    // ── Audio ──
+    async function startRec() { try { const s=await navigator.mediaDevices.getUserMedia({audio:true}); mediaRecorder=new MediaRecorder(s,{mimeType:'audio/webm'}); audioChunks=[]; mediaRecorder.ondataavailable=e=>audioChunks.push(e.data); mediaRecorder.start(); isRecording=true; document.getElementById('mic-btn').classList.add('recording'); } catch(e){console.error("Mic:",e);} }
+    function stopRec() { if(!mediaRecorder||mediaRecorder.state==='inactive')return; mediaRecorder.onstop=async()=>{const b=new Blob(audioChunks,{type:'audio/webm'});const ab=await b.arrayBuffer();const ctx=new AudioContext({sampleRate:16000});const d=await ctx.decodeAudioData(ab);const p=d.getChannelData(0);const w=encWAV(p,16000);if(ws?.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:"audio",audio:ab2b64(w)}));mediaRecorder.stream.getTracks().forEach(t=>t.stop());ctx.close();}; mediaRecorder.stop(); isRecording=false; document.getElementById('mic-btn').classList.remove('recording'); }
+    function encWAV(s,r){const b=new ArrayBuffer(44+s.length*2);const v=new DataView(b);const w=(v,o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};w(v,0,'RIFF');v.setUint32(4,36+s.length*2,true);w(v,8,'WAVE');w(v,12,'fmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,r,true);v.setUint32(28,r*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(v,36,'data');v.setUint32(40,s.length*2,true);for(let i=0;i<s.length;i++){let x=Math.max(-1,Math.min(1,s[i]));v.setInt16(44+i*2,x<0?x*0x8000:x*0x7FFF,true)}return b}
+    function ab2b64(b){let s='';const u=new Uint8Array(b);for(let i=0;i<u.byteLength;i++)s+=String.fromCharCode(u[i]);return btoa(s)}
+
+    // ── Global error catching ──
+    window.onerror = (msg, src, line, col, err) => {
+      console.error("GLOBAL ERROR:", msg, src, line);
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"client_error", error: msg, source: src, line: line, stack: err?.stack?.substring(0,500)}));
+    };
+    window.onunhandledrejection = (e) => {
+      console.error("UNHANDLED PROMISE:", e.reason);
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:"client_error", error: "Unhandled promise: " + e.reason?.toString()?.substring(0,200)}));
+    };
+
+    // ── Init ──
+    document.addEventListener('DOMContentLoaded', async () => {
+      buildMachines(GAME_SYSTEMS);
+      try {
+        head = new TalkingHead(document.getElementById('avatar'), {lipsyncModules:["en"], cameraView:"upper"});
+        await head.showAvatar({url:'mirror_assets/avatar.glb', body:'F', avatarMood:'neutral', lipsyncLang:'en'}, ev => {
+          if(ev.lengthComputable) document.getElementById('status-text').textContent = `Loading ${Math.round(ev.loaded/ev.total*100)}%`;
+        });
+        document.getElementById('status-text').textContent = '';
+      } catch(e) { console.error("Avatar:",e); document.getElementById('status-text').textContent = 'Avatar failed'; }
+
+      connectWS();
+
+      let rt=null;
+      document.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.repeat){e.preventDefault();if(rt){clearTimeout(rt);rt=null}if(!isRecording)startRec()}if(e.code==='F11'){e.preventDefault();document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}});
+      document.addEventListener('keyup',e=>{if(e.code==='Space'){e.preventDefault();if(rt)clearTimeout(rt);rt=setTimeout(()=>{if(isRecording)stopRec();rt=null},50)}});
+
+      const mic=document.getElementById('mic-btn');
+      mic.addEventListener('mousedown',()=>{if(!isRecording)startRec()});
+      mic.addEventListener('mouseup',()=>{if(isRecording)stopRec()});
+      mic.addEventListener('touchstart',e=>{e.preventDefault();if(!isRecording)startRec()});
+      mic.addEventListener('touchend',e=>{e.preventDefault();if(isRecording)stopRec()});
+
+      // Resume AudioContext on ANY user interaction
+      async function ensureAudio() {
+        if (head && head.audioCtx && head.audioCtx.state === 'suspended') {
+          await head.audioCtx.resume();
+          console.log("AudioContext resumed by user gesture");
+        }
+      }
+      document.addEventListener('click', ensureAudio, {once: false});
+      document.addEventListener('keydown', ensureAudio, {once: false});
+      document.addEventListener('touchstart', ensureAudio, {once: false});
+
+      document.getElementById('start-drill-btn').addEventListener('click', async ()=>{
+        await ensureAudio();
+        buildMachines(GAME_SYSTEMS);
+        ws.send(JSON.stringify({type:"start_drill"}));
+        document.getElementById('start-drill-btn').style.display='none';
+        document.getElementById('start-live-btn').style.display='none';
+      });
+      document.getElementById('start-live-btn').addEventListener('click', async ()=>{
+        await ensureAudio();
+        buildMachines(LIVE_SYSTEMS);
+        ws.send(JSON.stringify({type:"start_live"}));
+        document.getElementById('start-drill-btn').style.display='none';
+        document.getElementById('start-live-btn').style.display='none';
+      });
+      document.getElementById('reset-btn').addEventListener('click',()=>{ws.send(JSON.stringify({type:"reset"}));});
+    });
+  </script>
+</head>
+<body>
+  <div id="topbar">
+    <span class="company">ORACLE LENS</span>
+    <span><span class="status-dot healthy" id="status-dot"></span><span>OPERATIONAL</span></span>
+    <span id="revenue-loss">$0 lost</span>
+    <span id="score-display"></span>
+  </div>
+  <div id="nova-row">
+    <div id="avatar-col"><div id="avatar"></div><div id="subtitle"></div><div id="orb-container"></div></div>
+    <div id="issues-col"><div id="issues-header">ISSUES FOUND</div><div id="issues-list"></div></div>
+  </div>
+  <div id="machine-grid"></div>
+  <div id="action-bar">
+    <div id="decisions"></div>
+    <button id="start-drill-btn" style="display:none">RUN INCIDENT DRILL</button>
+    <button id="start-live-btn" style="display:none;background:#1a0a0a;border:2px solid #f44;color:#f44;padding:10px 24px;font-family:'Courier New';font-size:15px;cursor:pointer;border-radius:4px;">LIVE SECURITY MODE</button>
+    <div id="mic-area"><button id="mic-btn">🎤</button><span id="status-text">Connecting...</span></div>
+    <button id="reset-btn" style="display:none">RESET</button>
+  </div>
+  <div id="summary-overlay">
+    <div id="summary-card">
+      <div style="color:#555;font-size:12px;letter-spacing:3px;">INCIDENT RESOLVED</div>
+      <div class="grade-big" id="sum-grade">A</div>
+      <div style="color:#888;font-size:14px;" id="sum-subtitle">Good incident management</div>
+      <div class="stats-row">
+        <div class="stat"><span class="stat-val" id="sum-score">75</span>Score</div>
+        <div class="stat"><span class="stat-val" id="sum-time">2:34</span>Time</div>
+        <div class="stat"><span class="stat-val" id="sum-loss">$2,301</span>Rev Lost</div>
+        <div class="stat"><span class="stat-val" id="sum-decisions">12</span>Decisions</div>
+      </div>
+      <div class="breakdown" id="sum-breakdown"></div>
+      <button class="play-again" onclick="closeSummary()">PLAY AGAIN</button>
+    </div>
+  </div>
+  <span class="hint">SPACE: talk | F11: fullscreen</span>
+</body>
+</html>

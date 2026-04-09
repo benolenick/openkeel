@@ -1,0 +1,523 @@
+"""Observer Orchestrator — runs the Cartographer and Pilgrim as background workers.
+
+The Cartographer processes new log entries → updates the map.
+The Pilgrim walks the map on a slower cycle → produces findings.
+The Consensus Gate decides when to inject findings into the executor.
+
+This module provides the threading/async layer that connects everything.
+"""
+
+from __future__ import annotations
+
+import json
+import threading
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Optional
+
+from openkeel.core.cartographer import (
+    ProblemMap,
+    create_map,
+    load_map,
+    save_map,
+    apply_delta,
+    build_cartographer_prompt,
+    CARTOGRAPHER_SYSTEM_PROMPT,
+)
+from openkeel.core.pilgrim import (
+    PilgrimReport,
+    walk_map,
+    build_pilgrim_prompt,
+    apply_pilgrim_findings,
+    report_to_dict,
+    PILGRIM_SYSTEM_PROMPT,
+)
+from openkeel.core.consensus import (
+    ConsensusConfig,
+    ConsensusState,
+    process_cartographer_alerts,
+    process_pilgrim_report,
+    format_injection,
+    format_nudge,
+    consensus_status_line,
+)
+from openkeel.core.distilled_log import DistilledLog
+from openkeel.integrations.local_llm import (
+    LLMEndpoint,
+    complete,
+    parse_json_response,
+    check_health,
+    CARTOGRAPHER_ENDPOINT,
+    PILGRIM_ENDPOINT,
+    OVERWATCH_ENDPOINT,
+)
+from openkeel.core.oracle import (
+    OverwatchOracle,
+    OracleConfig,
+    OracleVerdict,
+    build_oracle_context,
+)
+
+
+# ---------------------------------------------------------------------------
+# Observer worker
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ObserverConfig:
+    """Configuration for the observer system."""
+    cartographer_endpoint: LLMEndpoint = field(default_factory=lambda: CARTOGRAPHER_ENDPOINT)
+    pilgrim_endpoint: LLMEndpoint = field(default_factory=lambda: PILGRIM_ENDPOINT)
+    consensus: ConsensusConfig = field(default_factory=ConsensusConfig)
+    cartographer_poll_seconds: float = 5.0     # check for new log entries
+    pilgrim_walk_seconds: float = 120.0        # full map walk interval
+    pilgrim_walk_on_contradiction: bool = True  # immediate walk when contradiction found
+    use_llm_cartographer: bool = True           # False = only structural delta (no LLM)
+    use_llm_pilgrim: bool = True                # False = only graph algorithms (no LLM)
+    # Overwatch Oracle (CPU-only, sees everything)
+    oracle: OracleConfig = field(default_factory=OracleConfig)
+    enable_oracle: bool = True
+
+
+class ObserverOrchestrator:
+    """Runs both observers in background threads."""
+
+    def __init__(
+        self,
+        mission_dir: Path,
+        config: ObserverConfig | None = None,
+        on_nudge: Callable[[str], None] | None = None,
+        on_interrupt: Callable[[str], None] | None = None,
+        on_status: Callable[[str], None] | None = None,
+    ):
+        self._mission_dir = mission_dir
+        self._config = config or ObserverConfig()
+        self._on_nudge = on_nudge or (lambda s: None)
+        self._on_interrupt = on_interrupt or (lambda s: None)
+        self._on_status = on_status or (lambda s: None)
+
+        self._log = DistilledLog(mission_dir)
+        self._pmap = load_map(mission_dir) or create_map(mission_dir.name)
+        self._consensus = ConsensusState()
+        self._last_log_count = 0  # Start from beginning on fresh daemon launch
+
+        self._running = False
+        self._cart_thread: threading.Thread | None = None
+        self._pilgrim_thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+        # Pilgrim trigger event (for immediate walks on contradiction)
+        self._pilgrim_trigger = threading.Event()
+
+        # Overwatch Oracle
+        self._oracle: OverwatchOracle | None = None
+        if self._config.enable_oracle:
+            self._oracle = OverwatchOracle(
+                config=self._config.oracle,
+                on_verdict=self._on_oracle_verdict,
+                on_inject=self._on_interrupt,
+                on_status=self._on_status,
+                context_builder=self._build_oracle_context,
+            )
+
+        # Mission context (set externally for Oracle)
+        self._mission_objective: str = ""
+        self._mission_plan: str = ""
+        self._credentials: list[dict] = []
+        self._executor_action: str = ""
+
+    @property
+    def problem_map(self) -> ProblemMap:
+        return self._pmap
+
+    @property
+    def consensus_state(self) -> ConsensusState:
+        return self._consensus
+
+    @property
+    def distilled_log(self) -> DistilledLog:
+        return self._log
+
+    @property
+    def oracle(self) -> OverwatchOracle | None:
+        return self._oracle
+
+    def set_mission_context(
+        self,
+        objective: str = "",
+        plan: str = "",
+        credentials: list[dict] | None = None,
+    ) -> None:
+        """Set mission context so the Oracle can see it."""
+        self._mission_objective = objective
+        self._mission_plan = plan
+        self._credentials = credentials or []
+
+    def set_executor_action(self, action: str) -> None:
+        """Update what the executor is currently doing (for Oracle context)."""
+        self._executor_action = action
+
+    def start(self) -> None:
+        """Start both observer threads."""
+        if self._running:
+            return
+
+        self._running = True
+
+        self._cart_thread = threading.Thread(
+            target=self._cartographer_loop,
+            name="weary-cartographer",
+            daemon=True,
+        )
+        self._pilgrim_thread = threading.Thread(
+            target=self._pilgrim_loop,
+            name="vigilant-pilgrim",
+            daemon=True,
+        )
+
+        self._cart_thread.start()
+        self._pilgrim_thread.start()
+
+        # Start Oracle if enabled
+        if self._oracle:
+            self._oracle.start()
+
+        self._on_status("Observers started")
+
+    def stop(self) -> None:
+        """Stop all observer threads and Oracle."""
+        self._running = False
+        self._pilgrim_trigger.set()  # unblock pilgrim wait
+        if self._oracle:
+            self._oracle.stop()
+        if self._cart_thread:
+            self._cart_thread.join(timeout=5)
+        if self._pilgrim_thread:
+            self._pilgrim_thread.join(timeout=5)
+        # Save final state
+        with self._lock:
+            save_map(self._mission_dir, self._pmap)
+        self._on_status("Observers stopped")
+
+    def health_check(self) -> dict:
+        """Check all LLM endpoints including Oracle."""
+        cart = check_health(self._config.cartographer_endpoint)
+        pilgrim = check_health(self._config.pilgrim_endpoint)
+        result = {
+            "cartographer": cart,
+            "pilgrim": pilgrim,
+            "map_nodes": len(self._pmap.nodes),
+            "map_edges": len(self._pmap.edges),
+            "log_entries": self._log.count(),
+            "contradictions": self._pmap.unresolved_contradictions,
+        }
+        if self._oracle:
+            result["oracle"] = self._oracle.health_check()
+        return result
+
+    # ---- Cartographer loop ----
+
+    def _cartographer_loop(self) -> None:
+        """Poll for new log entries and update the map."""
+        while self._running:
+            try:
+                new_entries = self._log.read_since(self._last_log_count)
+                if new_entries:
+                    for entry in new_entries:
+                        self._process_log_entry(entry)
+                    self._last_log_count = self._log.count()
+
+                    # Save map after processing
+                    with self._lock:
+                        save_map(self._mission_dir, self._pmap)
+
+            except Exception as e:
+                self._on_status(f"Cartographer error: {e}")
+
+            time.sleep(self._config.cartographer_poll_seconds)
+
+    def _process_log_entry(self, entry) -> None:
+        """Process a single log entry through the Cartographer."""
+        formatted = self._log.format_entry(entry)
+        alerts = []
+
+        if False:  # DISABLED: LLM too slow, using structural mode
+            # Send to Cartographer LLM
+            prompt = build_cartographer_prompt(self._pmap, formatted)
+            response = complete(
+                self._config.cartographer_endpoint,
+                CARTOGRAPHER_SYSTEM_PROMPT,
+                prompt,
+            )
+            delta = parse_json_response(response)
+            if "error" not in delta:
+                with self._lock:
+                    alerts = apply_delta(self._pmap, delta)
+        else:
+            # Structural-only: add node based on category + create edges
+            from openkeel.core.cartographer import add_node, add_edge
+            type_map = {
+                "GOAL": "goal",
+                "HYPOTHESIS": "assumption",
+                "ATTEMPT": "technique",
+                "RESULT": "technique",
+                "DISCOVERY": "fact",
+                "ENV": "environment",
+                "CRED": "credential",
+                "PIVOT": "goal",
+                "CIRCUIT": "fact",
+            }
+            ntype = type_map.get(entry.category, "fact")
+            with self._lock:
+                node = add_node(self._pmap, ntype, entry.message)
+                if entry.category == "RESULT" and "FAIL" in entry.message.upper():
+                    node.tried = True
+                    node.result = "fail"
+
+                # --- Create edges between related nodes ---
+                def _latest_of_type(ntypes):
+                    """Find the most recently added node of given type(s)."""
+                    best = None
+                    for nid, n in self._pmap.nodes.items():
+                        if nid == node.id:
+                            continue
+                        if n.node_type in ntypes and (best is None or n.timestamp >= best.timestamp):
+                            best = n
+                    return best
+
+                if entry.category == "HYPOTHESIS":
+                    # HYPOTHESIS -> most recent GOAL
+                    goal = _latest_of_type({"goal"})
+                    if goal:
+                        add_edge(self._pmap, goal.id, node.id, "DEPENDS_ON",
+                                 reason="goal depends on hypothesis")
+
+                elif entry.category == "ATTEMPT":
+                    # ATTEMPT -> most recent HYPOTHESIS
+                    hyp = _latest_of_type({"assumption"})
+                    if hyp:
+                        add_edge(self._pmap, node.id, hyp.id, "TRIED_FOR",
+                                 reason="technique attempts hypothesis")
+
+                elif entry.category == "RESULT":
+                    # RESULT -> most recent ATTEMPT
+                    attempt = _latest_of_type({"technique"})
+                    if attempt:
+                        edge_type = "SUPPORTS" if "SUCCESS" in entry.message.upper() else "FAILED_TO_RESOLVE"
+                        add_edge(self._pmap, node.id, attempt.id, edge_type,
+                                 reason="result of attempt")
+
+                elif entry.category == "DISCOVERY":
+                    # DISCOVERY -> most recent GOAL or HYPOTHESIS
+                    target = _latest_of_type({"goal", "assumption"})
+                    if target:
+                        add_edge(self._pmap, node.id, target.id, "SUPPORTS",
+                                 reason="discovery supports goal/hypothesis")
+
+                elif entry.category == "CRED":
+                    # CRED -> most recent DISCOVERY
+                    disc = _latest_of_type({"fact"})
+                    if disc:
+                        add_edge(self._pmap, node.id, disc.id, "DISCOVERED_BY",
+                                 reason="credential found via discovery")
+
+                elif entry.category == "ENV":
+                    # ENV -> most recent GOAL
+                    goal = _latest_of_type({"goal"})
+                    if goal:
+                        add_edge(self._pmap, node.id, goal.id, "SAME_CONTEXT",
+                                 reason="environment context for goal")
+
+                alerts.append(f"CARTOGRAPHER: {ntype} — {entry.message[:60]}")
+
+        # Process alerts through consensus
+        if alerts:
+            actions = process_cartographer_alerts(
+                self._consensus, alerts, self._config.consensus
+            )
+            self._handle_actions(actions)
+
+            # Trigger pilgrim walk if contradiction found
+            if any("CONTRADICTION" in a.upper() for a in alerts):
+                if self._config.pilgrim_walk_on_contradiction:
+                    self._pilgrim_trigger.set()
+
+    # ---- Pilgrim loop ----
+
+    def _pilgrim_loop(self) -> None:
+        """Periodically walk the map looking for blind spots."""
+        while self._running:
+            # Wait for either timer or trigger
+            triggered = self._pilgrim_trigger.wait(
+                timeout=self._config.pilgrim_walk_seconds
+            )
+            self._pilgrim_trigger.clear()
+
+            if not self._running:
+                break
+
+            try:
+                self._pilgrim_walk()
+            except Exception as e:
+                self._on_status(f"Pilgrim error: {e}")
+
+    def _pilgrim_walk(self) -> None:
+        """Perform one walk of the map."""
+        with self._lock:
+            # Local graph analysis first (always runs, no LLM needed)
+            report = walk_map(self._pmap)
+
+        # LLM-enhanced analysis
+        if self._config.use_llm_pilgrim and len(self._pmap.nodes) >= 3:
+            prompt = build_pilgrim_prompt(self._pmap)
+            response = complete(
+                self._config.pilgrim_endpoint,
+                PILGRIM_SYSTEM_PROMPT,
+                prompt,
+            )
+            findings = parse_json_response(response)
+            if "error" not in findings:
+                report = apply_pilgrim_findings(report, findings)
+
+        # Bridge findings to treadstone tree
+        self._bridge_to_treadstone(report)
+
+        # Process through consensus
+        actions = process_pilgrim_report(
+            self._consensus, report, self._config.consensus
+        )
+        self._handle_actions(actions)
+
+        # Update status
+        status = consensus_status_line(self._consensus)
+        self._on_status(status)
+
+    # ---- Action dispatch ----
+
+    def _handle_actions(self, actions: list[dict]) -> None:
+        """Route consensus actions to callbacks."""
+        interrupts = [a for a in actions if a["type"] == "interrupt"]
+        nudges = [a for a in actions if a["type"] == "nudge"]
+
+        if interrupts:
+            injection = format_injection(interrupts)
+            if injection:
+                self._on_interrupt(injection)
+
+        if nudges:
+            nudge = format_nudge(nudges)
+            if nudge:
+                self._on_nudge(nudge)
+
+    # ---- Treadstone bridge ----
+
+    def _bridge_to_treadstone(self, report: PilgrimReport) -> None:
+        """Bridge observer blind spots into treadstone hypotheses."""
+        try:
+            from openkeel.core.treadstone import (
+                load_tree, save_tree, add_hypothesis, get_active_stone,
+            )
+
+            tree = load_tree(self._mission_dir)
+            if not tree:
+                return
+
+            stone = get_active_stone(tree)
+            if not stone:
+                return
+
+            # Only create hypotheses for significant blind spots
+            existing = {h.label.lower() for h in stone.hypotheses}
+            added = 0
+
+            for spot in report.blind_spots:
+                if spot.severity < 6:
+                    continue
+                if spot.category not in ("unexplored", "killer_question", "contradiction"):
+                    continue
+
+                label = (spot.suggested_action or spot.description)[:80]
+                if label.lower() in existing:
+                    continue
+
+                add_hypothesis(
+                    stone,
+                    label=label,
+                    rationale=f"Observer ({spot.category}, severity {spot.severity}/10): {spot.description}",
+                    initial_confidence=0.35,
+                    tags=["observer", spot.category],
+                )
+                added += 1
+                existing.add(label.lower())
+
+            if added:
+                save_tree(self._mission_dir, tree)
+                self._log.append(
+                    "OBSERVER",
+                    f"Pilgrim created {added} hypotheses from blind spots",
+                )
+                self._on_status(f"Bridge: {added} new hypotheses from observer findings")
+
+        except Exception as e:
+            self._on_status(f"Bridge error: {e}")
+
+    # ---- Oracle integration ----
+
+    def _build_oracle_context(self) -> str:
+        """Build the Oracle's full context from all available sources."""
+        from openkeel.core.cartographer import map_to_prompt_context
+
+        # Tree summary
+        tree_summary = ""
+        try:
+            from openkeel.core.treadstone import load_tree, tree_status_line
+            tree = load_tree(self._mission_dir)
+            if tree:
+                tree_summary = tree_status_line(tree)
+        except Exception:
+            pass
+
+        # Problem map summary
+        map_summary = ""
+        with self._lock:
+            if self._pmap.nodes:
+                map_summary = map_to_prompt_context(self._pmap, max_nodes=30)
+
+        # Recent log entries
+        log_window = self._log.format_window(n=20)
+
+        # Pilgrim findings
+        pilgrim_findings = ""
+        if self._consensus.pilgrim_reports:
+            latest = self._consensus.pilgrim_reports[-1]
+            spots = latest.blind_spots[:5]
+            if spots:
+                pilgrim_findings = "\n".join(
+                    f"  [{s.severity}/10] {s.description}" for s in spots
+                )
+
+        # Cartographer alerts
+        cart_alerts = ""
+        if self._consensus.cartographer_alerts:
+            recent = self._consensus.cartographer_alerts[-10:]
+            cart_alerts = "\n".join(f"  - {a}" for a in recent)
+
+        return build_oracle_context(
+            mission_objective=self._mission_objective,
+            mission_plan=self._mission_plan,
+            credentials=self._credentials,
+            tree_summary=tree_summary,
+            map_summary=map_summary,
+            log_window=log_window,
+            pilgrim_findings=pilgrim_findings,
+            cartographer_alerts=cart_alerts,
+            executor_action=self._executor_action,
+        )
+
+    def _on_oracle_verdict(self, verdict: OracleVerdict) -> None:
+        """Handle an Oracle verdict — show as nudge if actionable."""
+        if verdict.is_actionable:
+            self._on_nudge(
+                f"[ORACLE {verdict.inference_seconds:.0f}s] {verdict.answer}"
+            )

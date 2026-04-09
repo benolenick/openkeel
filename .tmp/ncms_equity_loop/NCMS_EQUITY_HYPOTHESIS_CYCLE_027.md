@@ -1,0 +1,224 @@
+# NCMS Equity Hypothesis Loop Cycle 27
+
+- Timestamp: `2026-04-02T21:23:11`
+- Approach: rolling equity media-shock search using coverage z-scores, bullishness thresholds, and 3/5/7-day forward horizons.
+- GPU device: `cpu`
+
+## Review Adjustments
+
+- search bias: NOW=81.05, GLD=9.78, GS=5.35, AMD=4.29, XLE=2.43
+- emergent candidates this cycle: none
+
+## GPU Validation
+
+- No GPU validation results this cycle.
+
+## Top Bearish Patterns
+
+### NOW vs QQQ
+- Score: `0.375`
+- Events: `77`
+- Avg return: `-3.13%`
+- Avg alpha: `-3.30%`
+- Negative rate: `72.7%`
+- Negative alpha rate: `79.2%`
+- Crash rate: `33.8%`
+- Params: `h=7 g>=2 u>=10 bull>=0.00 units_z>=0.0 groups_z>=0.0`
+### NOW vs QQQ
+- Score: `0.374`
+- Events: `76`
+- Avg return: `-3.17%`
+- Avg alpha: `-3.33%`
+- Negative rate: `72.4%`
+- Negative alpha rate: `78.9%`
+- Crash rate: `34.2%`
+- Params: `h=7 g>=4 u>=10 bull>=0.00 units_z>=0.0 groups_z>=0.0`
+### NOW vs QQQ
+- Score: `0.365`
+- Events: `69`
+- Avg return: `-3.33%`
+- Avg alpha: `-3.39%`
+- Negative rate: `72.5%`
+- Negative alpha rate: `79.7%`
+- Crash rate: `34.8%`
+- Params: `h=7 g>=4 u>=6 bull>=0.05 units_z>=0.0 groups_z>=0.0`
+### NOW vs QQQ
+- Score: `0.333`
+- Events: `60`
+- Avg return: `-2.98%`
+- Avg alpha: `-3.35%`
+- Negative rate: `71.7%`
+- Negative alpha rate: `78.3%`
+- Crash rate: `31.7%`
+- Params: `h=7 g>=3 u>=8 bull>=0.00 units_z>=0.0 groups_z>=0.5`
+### NOW vs QQQ
+- Score: `0.333`
+- Events: `60`
+- Avg return: `-2.98%`
+- Avg alpha: `-3.35%`
+- Negative rate: `71.7%`
+- Negative alpha rate: `78.3%`
+- Crash rate: `31.7%`
+- Params: `h=7 g>=4 u>=6 bull>=0.00 units_z>=0.0 groups_z>=0.5`
+### NOW vs QQQ
+- Score: `0.293`
+- Events: `43`
+- Avg return: `-2.91%`
+- Avg alpha: `-3.35%`
+- Negative rate: `76.7%`
+- Negative alpha rate: `83.7%`
+- Crash rate: `27.9%`
+- Params: `h=7 g>=3 u>=8 bull>=0.00 units_z>=0.5 groups_z>=0.5`
+### NOW vs QQQ
+- Score: `0.291`
+- Events: `28`
+- Avg return: `-3.48%`
+- Avg alpha: `-3.95%`
+- Negative rate: `78.6%`
+- Negative alpha rate: `89.3%`
+- Crash rate: `39.3%`
+- Params: `h=7 g>=5 u>=3 bull>=0.00 units_z>=0.0 groups_z>=1.0`
+### NOW vs QQQ
+- Score: `0.288`
+- Events: `30`
+- Avg return: `-3.51%`
+- Avg alpha: `-3.84%`
+- Negative rate: `76.7%`
+- Negative alpha rate: `86.7%`
+- Crash rate: `30.0%`
+- Params: `h=7 g>=3 u>=10 bull>=0.05 units_z>=1.0 groups_z>=0.0`
+### NOW vs QQQ
+- Score: `0.273`
+- Events: `45`
+- Avg return: `-2.99%`
+- Avg alpha: `-3.08%`
+- Negative rate: `75.6%`
+- Negative alpha rate: `82.2%`
+- Crash rate: `28.9%`
+- Params: `h=7 g>=5 u>=4 bull>=0.05 units_z>=0.5 groups_z>=0.0`
+### NOW vs QQQ
+- Score: `0.273`
+- Events: `45`
+- Avg return: `-2.99%`
+- Avg alpha: `-3.08%`
+- Negative rate: `75.6%`
+- Negative alpha rate: `82.2%`
+- Crash rate: `28.9%`
+- Params: `h=7 g>=2 u>=3 bull>=0.05 units_z>=0.5 groups_z>=0.0`
+### NOW vs QQQ
+- Score: `0.273`
+- Events: `38`
+- Avg return: `-2.87%`
+- Avg alpha: `-3.30%`
+- Negative rate: `76.3%`
+- Negative alpha rate: `84.2%`
+- Crash rate: `26.3%`
+- Params: `h=7 g>=2 u>=4 bull>=0.05 units_z>=0.5 groups_z>=0.5`
+### NOW vs QQQ
+- Score: `0.273`
+- Events: `38`
+- Avg return: `-2.87%`
+- Avg alpha: `-3.30%`
+- Negative rate: `76.3%`
+- Negative alpha rate: `84.2%`
+- Crash rate: `26.3%`
+- Params: `h=7 g>=2 u>=3 bull>=0.05 units_z>=0.5 groups_z>=0.5`
+
+## Top Bullish Patterns
+
+### GS vs XLF
+- Score: `0.153`
+- Events: `28`
+- Avg return: `2.65%`
+- Avg alpha: `2.24%`
+- Negative rate: `25.0%`
+- Negative alpha rate: `21.4%`
+- Params: `h=7 g>=5 u>=6 bull>=0.00 units_z>=0.5 groups_z>=1.0`
+### XLE vs SPY
+- Score: `0.151`
+- Events: `18`
+- Avg return: `2.65%`
+- Avg alpha: `2.79%`
+- Negative rate: `16.7%`
+- Negative alpha rate: `22.2%`
+- Params: `h=7 g>=5 u>=3 bull>=0.05 units_z>=0.0 groups_z>=0.0`
+### GLD vs SPY
+- Score: `0.150`
+- Events: `9`
+- Avg return: `4.73%`
+- Avg alpha: `3.59%`
+- Negative rate: `0.0%`
+- Negative alpha rate: `11.1%`
+- Params: `h=7 g>=3 u>=10 bull>=0.05 units_z>=1.5 groups_z>=1.5`
+### GS vs XLF
+- Score: `0.146`
+- Events: `37`
+- Avg return: `2.43%`
+- Avg alpha: `2.00%`
+- Negative rate: `27.0%`
+- Negative alpha rate: `29.7%`
+- Params: `h=7 g>=2 u>=4 bull>=0.00 units_z>=0.0 groups_z>=1.0`
+### GS vs XLF
+- Score: `0.122`
+- Events: `15`
+- Avg return: `3.05%`
+- Avg alpha: `2.42%`
+- Negative rate: `26.7%`
+- Negative alpha rate: `20.0%`
+- Params: `h=7 g>=4 u>=10 bull>=0.10 units_z>=0.0 groups_z>=1.5`
+### GS vs XLF
+- Score: `0.121`
+- Events: `3`
+- Avg return: `4.82%`
+- Avg alpha: `4.67%`
+- Negative rate: `0.0%`
+- Negative alpha rate: `0.0%`
+- Params: `h=7 g>=5 u>=6 bull>=0.10 units_z>=1.5 groups_z>=1.5`
+### GLD vs SPY
+- Score: `0.118`
+- Events: `38`
+- Avg return: `2.24%`
+- Avg alpha: `1.65%`
+- Negative rate: `21.1%`
+- Negative alpha rate: `34.2%`
+- Params: `h=7 g>=4 u>=6 bull>=0.00 units_z>=0.0 groups_z>=0.5`
+### GS vs XLF
+- Score: `0.113`
+- Events: `18`
+- Avg return: `2.82%`
+- Avg alpha: `2.08%`
+- Negative rate: `22.2%`
+- Negative alpha rate: `22.2%`
+- Params: `h=7 g>=4 u>=8 bull>=0.00 units_z>=0.0 groups_z>=1.5`
+### GLD vs SPY
+- Score: `0.105`
+- Events: `6`
+- Avg return: `3.91%`
+- Avg alpha: `3.21%`
+- Negative rate: `0.0%`
+- Negative alpha rate: `16.7%`
+- Params: `h=7 g>=2 u>=8 bull>=0.20 units_z>=1.0 groups_z>=1.5`
+### GLD vs SPY
+- Score: `0.102`
+- Events: `20`
+- Avg return: `2.49%`
+- Avg alpha: `1.89%`
+- Negative rate: `20.0%`
+- Negative alpha rate: `30.0%`
+- Params: `h=7 g>=2 u>=3 bull>=0.20 units_z>=0.5 groups_z>=0.5`
+### GLD vs SPY
+- Score: `0.095`
+- Events: `12`
+- Avg return: `3.18%`
+- Avg alpha: `2.20%`
+- Negative rate: `16.7%`
+- Negative alpha rate: `25.0%`
+- Params: `h=7 g>=5 u>=3 bull>=0.05 units_z>=1.0 groups_z>=0.5`
+### GLD vs SPY
+- Score: `0.095`
+- Events: `11`
+- Avg return: `3.44%`
+- Avg alpha: `2.33%`
+- Negative rate: `18.2%`
+- Negative alpha rate: `27.3%`
+- Params: `h=7 g>=4 u>=4 bull>=0.10 units_z>=2.0 groups_z>=0.5`

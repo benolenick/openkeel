@@ -45,7 +45,7 @@ from openkeel.calcifer.ladder_window import (
     _cloud_monitor, _local_monitor,
     DARK_BG, PANEL_BG, BORDER, DIM_TEXT, LIGHT_TXT, ORANGE,
 )
-from openkeel.calcifer.conductor import Conductor, ConductorState
+from openkeel.calcifer.broker_gui_adapter import BrokerGUIAdapter
 
 # ── Runner config ────────────────────────────────────────────────────────────
 
@@ -497,9 +497,9 @@ class LadderChatWindow(QMainWindow):
         self._active_bubble: MessageWidget | None = None
         self._full_response: list[str] = []
 
-        # ── Conductor ──
-        self._conductor = Conductor(conversation_id=SESSION_ID)
-        self._first_message = True
+        # ── Broker ──
+        self._session_id = SESSION_ID
+        self._adapter = BrokerGUIAdapter()
 
         # ── Frame ──
         frame = QFrame()
@@ -670,52 +670,23 @@ class LadderChatWindow(QMainWindow):
         self._busy = True
         self._send_btn.setEnabled(False)
 
-        # Add context to message before sending
-        context = build_context(text)
-        full_user = f"{text}\n\n{context}" if context else text
-
-        # Conductor: init on first message, then advise routing
-        if self._first_message:
-            self._conductor.initialize_from_message(text)
-            self._first_message = False
-
-        # Show raw user text in UI
+        # Show user message
         self._add_bubble("user", text)
+        save_turn(SESSION_ID, "user", text)
 
-        # Route — let conductor optionally escalate
-        runner_id, band = route(text)
-        runner_id = self._conductor.suggest_routing(text, runner_id)
-        self._active_runner = runner_id
-        cfg = RUNNER_CFG[runner_id]
-        self._route_lbl.setText(
-            f"band {band}  ·  {cfg['label']}"
-        )
-        self._route_lbl.setStyleSheet(
-            f"color: {cfg['color']}; font: 10px 'Monospace';"
-        )
+        self._route_lbl.setText("broker: planning → executing → judging")
+        self._route_lbl.setStyleSheet("color: #FF6611; font: 10px 'Monospace';")
+        USAGE.spike("opus", 100.0)
 
-        # Spike the dial immediately
-        USAGE.spike(runner_id, 100.0)
-
-        # Create assistant bubble (streaming into it)
-        self._active_bubble = self._add_bubble("assistant", "", runner_id)
+        # Create assistant bubble
+        self._active_bubble = self._add_bubble("assistant", "", "broker")
         self._full_response = []
-
-        # Build message history for API
-        history_msgs = get_recent_history(SESSION_ID, limit=16)
-        history_msgs.append({"role": "user", "content": full_user})
-
         bridge = self._bridge
 
         def _run():
             try:
-                kind = RUNNER_CFG[runner_id]["kind"]
-                # Stream directly — Qt signals auto-queue cross-thread
-                if kind == "ollama":
-                    full = _stream_ollama(runner_id, history_msgs, bridge.token.emit)
-                else:
-                    full = _stream_anthropic(runner_id, history_msgs, bridge.token.emit)
-                bridge.done.emit(runner_id, full)
+                response = self._adapter.handle_user_message(text, self._session_id)
+                bridge.done.emit("broker", response)
             except Exception as e:
                 import traceback
                 traceback.print_exc()
@@ -726,24 +697,13 @@ class LadderChatWindow(QMainWindow):
     def _on_token(self, token: str) -> None:
         if self._active_bubble:
             self._active_bubble.append_token(token)
-            self._full_response.append(token)
-            # Keep dial hot while streaming
-            if self._active_runner:
-                USAGE.spike(self._active_runner, 95.0)
         self._scroll_bottom()
 
     def _on_done(self, runner_id: str, full_text: str) -> None:
+        if self._active_bubble:
+            self._active_bubble.set_text(full_text)
         save_turn(SESSION_ID, "assistant", full_text)
-        self._history.append({"role": "assistant", "content": full_text})
-
-        # Conductor observes response — may inject an intervention note
-        should_intervene, reason = self._conductor.observe_response(full_text, runner_id)
-        if should_intervene and reason:
-            note = self._add_bubble("conductor", "", "conductor")
-            note.set_text(f"🔥 conductor: {reason}")
-            # Update toolbar status
-            self._route_lbl.setText(self._conductor.status_line())
-
+        self._route_lbl.setStyleSheet(f"color: {DIM_TEXT}; font: 10px 'Monospace';")
         self._busy = False
         self._send_btn.setEnabled(True)
         self._active_bubble = None
@@ -766,7 +726,7 @@ class LadderChatWindow(QMainWindow):
         ).set_text(
             "The fire's lit. I'm routing on the Ladder — "
             "cheapest local runner first, cloud only if you push me.\n\n"
-            "Tag a runner to force it: @local  @qwen  @big  @haiku  @sonnet  @opus"
+            "Underneath, every turn now goes through Opus first for chat, planning, and delegation."
         )
 
     def _clear_chat(self) -> None:

@@ -1,0 +1,360 @@
+# OpenKeel v0.2 — WST (Wan Shi Tong) Profile
+# Book-to-Memoria knowledge extraction pipeline for HTB autopwn.
+# Governs CLI agent sessions that run/manage WST on jagg (192.168.0.224).
+# Injects project context so agents instantly know about WST infrastructure.
+
+name: wst
+description: >
+  Wan Shi Tong — book-to-Memoria knowledge extraction pipeline. Manages
+  semantic chunking of security books via Ollama (qwen) on jagg, deduplication,
+  and seeding extracted facts to Memoria. Gates destructive operations on the
+  facts store and Ollama model management. Injects WST project context
+  (book list, Memoria endpoint, jagg paths, pipeline status) on session start.
+version: "0.2"
+
+# ---------------------------------------------------------------------------
+# Project context (injected on session start)
+# ---------------------------------------------------------------------------
+
+context:
+  project: "WST (Wan Shi Tong)"
+  summary: >
+    Book-to-Memoria extraction pipeline. Named after the spirit library owl
+    from Avatar ("He Who Knows Ten Thousand Things"). Extracts actionable
+    pentesting facts from security books using semantic chunking + Ollama LLM,
+    deduplicates against Memoria, and seeds new facts.
+  infrastructure:
+    jagg: "192.168.0.224 (SSH user: om, password auth only)"
+    wts_home: "/home/om/wts/"
+    venv: "/home/om/wts/venv"
+    books_dir: "/home/om/wts/books/"
+    extracted_dir: "/home/om/wts/extracted/"
+    facts_dir: "/home/om/wts/facts/"
+    logs_dir: "/home/om/wts/logs/"
+    local_source: "C:\\Users\\om\\wts\\pipeline.py"
+    github: "https://github.com/benolenick/wts (private)"
+    memoria: "http://127.0.0.1:8000 on jagg (localhost only, SSH tunnel required)"
+    ollama_gpu0: "http://127.0.0.1:11434 (via AI Shaman guardian)"
+    ollama_gpu1: "http://127.0.0.1:11435 (via AI Shaman guardian)"
+    ollama_backend_gpu0: "http://127.0.0.1:11444"
+    ollama_backend_gpu1: "http://127.0.0.1:11445"
+    guardian_config: "/home/om/ollama-guardian/guardian_config.json"
+  pipeline:
+    stages: "ingest -> semantic_chunk -> extract (Ollama) -> dedup -> seed (Memoria)"
+    scripts:
+      - "semantic_extract.py — single-book semantic chunker + extractor"
+      - "run_all_books.py — orchestrates all books, supports --single or dual-GPU"
+      - "gpu1_runner.py — runs remaining books on GPU 1 sequentially"
+      - "pipeline.py — original non-semantic pipeline (legacy)"
+    wrapper: "~/wts/wts (CLI wrapper script)"
+    env_vars:
+      - "OLLAMA_MODEL — model name (default qwen3.5:latest)"
+      - "OLLAMA_ENDPOINT — full URL to Ollama (e.g. http://127.0.0.1:11434)"
+      - "WTS_BOOK_FILE — filename of book in extracted/"
+      - "WTS_OUTPUT_SLUG — output filename slug"
+      - "WTS_BULK_DELAY — delay between chunks (default 2s)"
+  notes:
+    - "AI Shaman guardian restricts which models can run on which GPU"
+    - "Guardian config must allow the model name pattern (e.g. qwen3.5:*)"
+    - "sentence-transformers (all-MiniLM-L6-v2) used for semantic chunking embeddings"
+    - "numpy and sentence-transformers must be installed in /home/om/wts/venv"
+    - "Resume-safe: progress saved every 10 chunks per book in *_progress.json"
+    - "Memoria binds localhost on jagg — all API access requires SSH tunnel from daggoth"
+    - "jagg has 2x RTX 3090 (24GB each), 152GB RAM"
+    - "Large models (14B+) can OOM or crash jagg — prefer smaller models for batch extraction"
+    - "paramiko: always use allow_agent=False, look_for_keys=False for jagg"
+    - "AI Shaman has proactive resource monitor (v2.1): three-tier escalation for RAM and VRAM"
+    - "Resource thresholds: RAM warn 8GB / throttle 4GB / emergency 2GB"
+    - "Resource thresholds: VRAM warn 3000MB / throttle 1500MB / emergency 500MB per GPU"
+    - "Throttle = pause gates (block new requests). Emergency = unload models from Ollama"
+    - "Resource guard also rejects individual requests when VRAM < vram_min_free_mb or RAM < ram_min_free_gb"
+    - "guardian_config.json supports: resource_guard_enabled, ram_warn_gb, ram_throttle_gb, ram_emergency_gb, vram_warn_mb, vram_throttle_mb, vram_emergency_mb"
+    - "AI Shaman GitHub: https://github.com/benolenick/ai-shaman"
+    - "NEVER restart ollama-guardian or Ollama while WST extraction is running — kills in-flight inference and can crash jagg"
+    - "Before deploying AI Shaman changes: check if extraction is active (ps aux | grep semantic_extract), pause/stop it first"
+    - "Deploy sequence: stop extraction → upload new guardian → restart service → verify healthy → resume extraction"
+    - "KeePassXC vault has jagg SSH password under Servers/jagg"
+
+# ---------------------------------------------------------------------------
+# Babysit mode context
+# ---------------------------------------------------------------------------
+# When babysit mode is activated, the agent uses this context to figure out
+# HOW to check on things. The user provides WHAT to watch in free text.
+
+babysit:
+  default_interval_seconds: 300
+  context: >
+    To monitor WST extraction on jagg:
+    1. SSH to 192.168.0.224 (user om, password from KeePassXC Servers/jagg)
+       Use paramiko with allow_agent=False, look_for_keys=False
+    2. Check processes: ps aux | grep semantic_extract | grep -v grep
+    3. Check GPU usage: nvidia-smi --query-gpu=index,memory.used,memory.free,utilization.gpu --format=csv,noheader,nounits
+    4. Check logs: tail -5 /home/om/wts/logs/allbooks_hacktricks.log (GPU 0)
+                   tail -5 /home/om/wts/logs/allbooks_gpu1.log (GPU 1)
+    5. Check facts progress: ls /home/om/wts/facts/*_semantic.json | wc -l
+    6. Check system RAM: free -g | head -2
+    7. Check AI Shaman: systemctl is-active ollama-guardian
+    Alert conditions: process died, GPU at 0% for extended time, OOM in dmesg,
+    facts files not growing, AI Shaman down.
+
+# ---------------------------------------------------------------------------
+# Command classification tiers
+# ---------------------------------------------------------------------------
+
+blocked:
+  patterns:
+    # Recursive deletion of WST data directories
+    - 'rm\s+(-[a-zA-Z]*r[a-zA-Z]*f|-[a-zA-Z]*f[a-zA-Z]*r)\s+.*(wts|facts|extracted|books|memoria)'
+    # Deleting the entire facts directory
+    - 'rm\s+.*(/home/om/wts/facts|~/wts/facts)'
+    # Dropping or truncating Memoria database
+    - '(?i)\bDROP\s+(TABLE|DATABASE)\b.*memoria'
+    - '(?i)\bTRUNCATE\b.*memoria'
+    # Killing Ollama or AI Shaman without intent
+    - '(?i)\bkill\s+(-9\s+)?.*ollama'
+    - '(?i)\bkill\s+(-9\s+)?.*guardian'
+    - '(?i)\b(systemctl|service)\s+stop\s+ollama'
+    # System power control on jagg
+    - '(?i)\b(shutdown|poweroff|halt|reboot)\b'
+    # Disk formatting
+    - '(?i)\b(mkfs|mke2fs|fdisk|parted)\b'
+    - '(?i)\bdd\s+.*of=/dev/'
+    # Deleting Ollama models without review
+    - '(?i)\bollama\s+rm\b'
+    # Overwriting guardian config without review
+    - '(?i)(rm|mv|cp.*>)\s+.*guardian_config\.json'
+  message: "BLOCKED by WST profile: destructive operation on WST infrastructure denied."
+
+gated:
+  patterns:
+    # SSH to jagg (review scope/intent)
+    - '\bssh\s+.*192\.168\.0\.224'
+    - '\bssh\s+.*jagg'
+    # Modifying Ollama model config or pulling new models
+    - '(?i)\bollama\s+(pull|create|cp)\b'
+    # Modifying AI Shaman guardian config
+    - '(?i)(vi|vim|nano|sed|echo.*>)\s+.*guardian_config'
+    # Restarting Ollama or AI Shaman — MUST check no extraction is running first
+    - '(?i)\b(systemctl|service)\s+restart\s+ollama'
+    - '(?i)\bnohup\s+ollama\s+serve'
+    - '(?i)\b(systemctl|service)\s+stop\s+ollama-guardian'
+    # Deleting individual fact files
+    - 'rm\s+.*_semantic\.json'
+    - 'rm\s+.*_progress\.json'
+    # Clearing Memoria facts
+    - '(?i)\bcurl\s+.*memoria.*delete'
+    - '(?i)\bcurl\s+.*8000.*/delete'
+    # Git push WST repo
+    - '(?i)\bgit\s+push\b'
+    # pip install/uninstall in WST venv (dependency changes)
+    - '(?i)\bpip\s+(install|uninstall)\b'
+    # Running extraction with large models (14B+)
+    - '(?i)OLLAMA_MODEL=.*14b'
+    - '(?i)OLLAMA_MODEL=.*70b'
+  message: "GATED by WST profile: this operation affects WST infrastructure — confirm intent."
+
+safe:
+  patterns:
+    # Reading WST files and logs
+    - '^\s*(cat|less|head|tail|grep|rg|wc)\s'
+    - '^\s*(ls|ll|la|dir|find|fd)\s'
+    - '^\s*pwd\s*$'
+    - '^\s*cd\s'
+    # Checking WST status
+    - '^\s*~/wts/wts\s+status'
+    - '(?i)\bcurl\s+.*127\.0\.0\.1:8000/(health|search|stats)'
+    - '(?i)\bcurl\s+.*127\.0\.0\.1:1143[45]/api/(tags|ps|show)'
+    # Running WST pipeline (extraction)
+    - '(?i)\bnohup\s+.*run_all_books\.py'
+    - '(?i)\bpython3?\s+.*semantic_extract\.py'
+    - '(?i)\bpython3?\s+.*run_all_books\.py'
+    - '(?i)\bpython3?\s+.*pipeline\.py'
+    - '(?i)\bpython3?\s+.*gpu1_runner\.py'
+    # Process monitoring
+    - '^\s*(ps|top|htop|nvidia-smi|free|df|du)\b'
+    - '^\s*ss\s+-tlnp'
+    # Git read-only
+    - '^\s*git\s+(status|diff|log|show|branch|fetch|stash\s+list)\b'
+    - '^\s*git\s+(add|commit|pull|clone)\b'
+    # Python and file utilities
+    - '^\s*(python|python3)\s+.*\.py\b'
+    - '^\s*(cp|mv|mkdir|touch)\s'
+    - '^\s*(tar|gzip|gunzip|zip|unzip)\s'
+    # Ollama read-only
+    - '(?i)\bollama\s+(list|show|ps)\b'
+    # Memoria read-only queries
+    - '(?i)\bcurl\s+.*8000/search'
+    # SSH for checking status (read-only commands)
+    - '^\s*ssh\s+.*"(ls|cat|head|tail|ps|nvidia-smi|df|free)"'
+    # Environment info
+    - '^\s*(env|printenv|id|whoami|uname)\b'
+  message: ""
+
+default_action: allow
+
+# ---------------------------------------------------------------------------
+# Scope constraints
+# ---------------------------------------------------------------------------
+
+scope:
+  allowed_ips:
+    - "192.168.0.224"    # jagg
+    - "127.0.0.1"        # localhost
+  allowed_hostnames:
+    - "jagg"
+  allowed_paths:
+    - "/home/om/wts/**"
+    - "/home/om/ollama-guardian/**"
+    - "/tmp/**"
+    - "C:/Users/om/wts/**"
+  denied_paths:
+    - "/etc/**"
+    - "/boot/**"
+    - "/root/**"
+
+# ---------------------------------------------------------------------------
+# Activities (timeboxing)
+# ---------------------------------------------------------------------------
+
+activities:
+  - name: extraction
+    patterns:
+      - '(?i)\bpython3?\s+.*semantic_extract\.py'
+      - '(?i)\bpython3?\s+.*run_all_books\.py'
+      - '(?i)\bpython3?\s+.*pipeline\.py'
+      - '(?i)\bnohup\s+.*run_all_books'
+    timebox_minutes: 60
+    grace_minutes: 15
+
+  - name: monitoring
+    patterns:
+      - '^\s*(ps|top|htop|nvidia-smi|free|df)\b'
+      - '(?i)\bcurl\s+.*8000/(health|stats)'
+      - '(?i)\bcurl\s+.*1143[45]/api/(tags|ps)'
+      - '^\s*(tail|grep)\s+.*\.log'
+    timebox_minutes: 30
+    grace_minutes: 10
+
+  - name: maintenance
+    patterns:
+      - '(?i)\bollama\s+(pull|create)\b'
+      - '(?i)\bpip\s+install\b'
+      - '(?i)\bgit\s+(push|pull|commit)\b'
+      - '(?i)(vi|vim|nano|sed)\s+.*guardian_config'
+    timebox_minutes: 20
+    grace_minutes: 5
+
+  - name: seeding
+    patterns:
+      - '(?i)\bcurl\s+.*8000/memorize'
+      - '(?i)\bcurl\s+.*8000/search'
+      - '(?i)\bpython3?\s+.*seed'
+      - '(?i)\bpython3?\s+.*dedup'
+    timebox_minutes: 30
+    grace_minutes: 10
+
+# ---------------------------------------------------------------------------
+# Phases
+# ---------------------------------------------------------------------------
+
+phases:
+  - name: preflight
+    description: "Verify jagg is reachable, Ollama is running, Memoria is healthy, venv dependencies are installed."
+    timeout_minutes: 10
+    auto_advance: false
+    gates:
+      - type: command_output
+        target: "curl -s http://127.0.0.1:8000/health"
+        expect: "memory_facts"
+        message: "Memoria must be healthy before extraction."
+
+  - name: extraction
+    description: "Run semantic_extract.py or run_all_books.py to process books through Ollama."
+    timeout_minutes: 480
+    auto_advance: false
+    gates: []
+
+  - name: dedup-and-seed
+    description: "Deduplicate extracted facts against Memoria, then seed new facts."
+    timeout_minutes: 60
+    auto_advance: false
+    gates: []
+
+  - name: validation
+    description: "Verify fact count increased, spot-check quality, update story.txt."
+    timeout_minutes: 15
+    auto_advance: false
+    gates: []
+
+# ---------------------------------------------------------------------------
+# Re-injection
+# ---------------------------------------------------------------------------
+
+reinjection:
+  capsule_every: 15
+  full_every: 80
+  rules_path: ""
+  capsule_lines: 25
+
+# ---------------------------------------------------------------------------
+# Sandbox
+# ---------------------------------------------------------------------------
+
+sandbox:
+  enabled: false
+  memory_max: "16G"
+  cpu_quota: "400%"
+  network_deny: []
+  readonly_paths: []
+  inaccessible_paths:
+    - "/etc/shadow"
+    - "/root"
+
+# ---------------------------------------------------------------------------
+# Memoria hooks (cross-session memory)
+# ---------------------------------------------------------------------------
+
+memoria_hooks:
+  enabled: true
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 10
+  top_k: 5
+  mandatory_activities:
+    - extraction
+    - seeding
+  advisory_activities:
+    - maintenance
+    - monitoring
+  tool_queries:
+    Bash: "WST pipeline extraction Ollama semantic chunking"
+    Read: "WST book processing facts Memoria"
+    Write: "WST configuration pipeline setup"
+
+# ---------------------------------------------------------------------------
+# Learning
+# ---------------------------------------------------------------------------
+
+learning:
+  enabled: true
+  endpoint: "http://127.0.0.1:8000"
+  timeout: 15
+  extract_on:
+    - timebox_blocks
+    - successful_phases
+    - blocked_commands
+  auto_seed: true
+  search_top_k: 5
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+tags:
+  - wst
+  - wan-shi-tong
+  - memoria
+  - extraction
+  - ollama
+  - htb
+  - books
+  - jagg

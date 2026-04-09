@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMOS</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: #0f0f0f; color: #e0e0e0; height: 100vh; overflow: hidden; }
+
+  .shell { display: flex; height: 100vh; width: 100vw; }
+
+  /* Sidebar */
+  .sidebar { width: 260px; background: #171717; border-right: 1px solid #2a2a2a; display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.2s; z-index: 500; }
+  .sidebar.collapsed { width: 0; overflow: hidden; border: none; }
+  .sb-header { padding: 12px; display: flex; align-items: center; justify-content: space-between; }
+  .sb-toggle { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; color: #999; font-size: 16px; background: none; border: none; }
+  .sb-toggle:hover { background: #2a2a2a; color: #fff; }
+  .sb-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #666; padding: 16px 16px 6px; }
+  .sb-list { flex: 1; overflow-y: auto; padding: 4px 8px; }
+  .sb-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; color: #999; margin-bottom: 2px; }
+  .sb-item:hover { background: #212121; color: #e0e0e0; }
+  .sb-item.active { background: #2a2a2a; color: #fff; }
+  .sb-item-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+  .sb-item-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sb-item-close { display: none; font-size: 14px; color: #666; width: 20px; text-align: center; border-radius: 4px; }
+  .sb-item:hover .sb-item-close { display: block; }
+  .sb-item-close:hover { color: #fff; background: #333; }
+  .sb-item .sb-dot { width: 6px; height: 6px; border-radius: 50%; background: #10a37f; flex-shrink: 0; }
+  .sb-item.minimized { opacity: 0.5; }
+  .sb-divider { height: 1px; background: #2a2a2a; margin: 8px 12px; }
+  .sb-footer { padding: 12px; border-top: 1px solid #2a2a2a; }
+  .sb-user { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer; }
+  .sb-user:hover { background: #2a2a2a; }
+  .sb-avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #10a37f, #1a7f5a); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #fff; }
+
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+
+  /* Desktop */
+  .desktop { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; }
+  .desktop.hidden { display: none; }
+  .desk-greeting h1 { font-size: 32px; font-weight: 300; margin-bottom: 8px; text-align: center; }
+  .desk-greeting p { font-size: 14px; color: #666; text-align: center; }
+
+  /* Omnibar */
+  .omnibar-wrap { width: 100%; max-width: 680px; margin-top: 32px; position: relative; }
+  .omnibar { background: #2a2a2a; border: 1px solid #333; border-radius: 16px; padding: 14px 18px; display: flex; align-items: center; gap: 12px; }
+  .omnibar:focus-within { border-color: #10a37f; box-shadow: 0 0 0 3px #10a37f22; }
+  .omnibar input { background: none; border: none; color: #e0e0e0; font-size: 15px; flex: 1; outline: none; font-family: inherit; }
+  .omnibar input::placeholder { color: #666; }
+  .omnibar-send { width: 32px; height: 32px; border-radius: 8px; background: #10a37f; border: none; color: #fff; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .omnibar-send:hover { background: #0d8c6c; }
+  .omnibar-key { background: #333; color: #666; font-size: 10px; padding: 3px 7px; border-radius: 4px; }
+
+  /* Inline response */
+  .inline-response { display: none; background: #1e1e1e; border: 1px solid #2a2a2a; border-radius: 12px; margin-top: 8px; padding: 16px 18px; max-width: 680px; width: 100%; box-shadow: 0 8px 24px rgba(0,0,0,0.3); animation: fadeUp 0.2s ease; }
+  .inline-response.visible { display: block; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .ir-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .ir-avatar { width: 22px; height: 22px; border-radius: 50%; background: #10a37f; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #fff; font-weight: 600; }
+  .ir-body { font-size: 13px; line-height: 1.6; color: #ccc; }
+  .ir-body p { margin-bottom: 6px; }
+  .ir-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  .ir-expand { font-size: 11px; color: #10a37f; cursor: pointer; margin-left: auto; }
+  .ir-expand:hover { text-decoration: underline; }
+
+  .desk-suggestions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; justify-content: center; }
+  .desk-sug { padding: 8px 16px; background: #1e1e1e; border: 1px solid #333; border-radius: 12px; font-size: 12px; color: #999; cursor: pointer; }
+  .desk-sug:hover { border-color: #10a37f; color: #e0e0e0; }
+  .desk-quick-apps { display: flex; gap: 16px; margin-top: 40px; }
+  .desk-qapp { width: 56px; text-align: center; cursor: pointer; padding: 8px 4px; border-radius: 10px; }
+  .desk-qapp:hover { background: #2a2a2a; }
+  .desk-qapp-icon { font-size: 28px; margin-bottom: 4px; }
+  .desk-qapp-label { font-size: 9px; color: #666; }
+
+  /* Taskbar */
+  .taskbar { height: 48px; background: #171717; border-top: 1px solid #2a2a2a; display: flex; align-items: center; padding: 0 8px; flex-shrink: 0; z-index: 600; }
+  .tb-start { width: 40px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; }
+  .tb-start:hover { background: #2a2a2a; }
+  .tb-start svg { width: 20px; height: 20px; fill: #999; }
+  .tb-start:hover svg { fill: #fff; }
+  .tb-sep { width: 1px; height: 24px; background: #2a2a2a; margin: 0 8px; }
+  .tb-apps { display: flex; gap: 2px; flex: 1; overflow-x: auto; }
+  .tb-app { height: 36px; padding: 0 12px; display: flex; align-items: center; gap: 6px; border-radius: 6px; cursor: pointer; font-size: 12px; color: #999; white-space: nowrap; position: relative; }
+  .tb-app:hover { background: #2a2a2a; color: #e0e0e0; }
+  .tb-app.active { background: #2a2a2a; color: #fff; }
+  .tb-app.active::after { content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 16px; height: 3px; background: #10a37f; border-radius: 2px; }
+  .tb-right { display: flex; align-items: center; gap: 12px; padding-right: 8px; }
+  .tb-systray { font-size: 14px; color: #666; cursor: pointer; padding: 4px; border-radius: 4px; position: relative; }
+  .tb-systray:hover { color: #999; background: #2a2a2a; }
+  .notif-count { position: absolute; top: -2px; right: -4px; background: #f7768e; color: #fff; font-size: 8px; width: 14px; height: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  .tb-clock { font-size: 12px; color: #999; text-align: right; line-height: 1.3; cursor: pointer; }
+
+  /* ---- Token Monitor (taskbar widget) ---- */
+  .token-monitor { display: flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 6px; cursor: pointer; height: 36px; background: #1e1e1e; border: 1px solid #2a2a2a; transition: all 0.2s; }
+  .token-monitor:hover { background: #2a2a2a; border-color: #333; }
+  .token-monitor.saving .tm-bars { animation: tm-pulse 0.6s ease; }
+  @keyframes tm-pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.5); } }
+
+  .tm-bars { display: flex; gap: 2px; align-items: flex-end; height: 24px; }
+  .tm-bar { width: 3px; border-radius: 1px 1px 0 0; transition: height 0.4s ease, background 0.4s ease; }
+  .tm-bar.saved { background: #10a37f; }
+  .tm-bar.used { background: #e0af68; }
+  .tm-bar.cached { background: #7c3aed; }
+
+  .tm-stats { display: flex; flex-direction: column; justify-content: center; line-height: 1.2; }
+  .tm-pct { font-size: 11px; font-weight: 600; color: #10a37f; }
+  .tm-label { font-size: 7px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* ---- Token Monitor (expanded desktop widget) ---- */
+  .token-widget { position: absolute; bottom: 56px; right: 8px; width: 320px; background: #1e1e1e; border: 1px solid #2a2a2a; border-radius: 12px; box-shadow: 0 -8px 32px rgba(0,0,0,0.5); z-index: 1000; display: none; overflow: hidden; }
+  .token-widget.open { display: block; animation: toastIn 0.2s ease; }
+  .tw-header { padding: 12px 16px; border-bottom: 1px solid #2a2a2a; display: flex; justify-content: space-between; align-items: center; }
+  .tw-title { font-size: 13px; font-weight: 500; }
+  .tw-close { cursor: pointer; color: #666; font-size: 14px; }
+  .tw-close:hover { color: #fff; }
+  .tw-body { padding: 14px 16px; }
+
+  .tw-big-number { font-size: 28px; font-weight: 700; color: #10a37f; line-height: 1; }
+  .tw-big-label { font-size: 11px; color: #666; margin-top: 2px; }
+  .tw-big-sub { font-size: 11px; color: #999; margin-top: 4px; }
+
+  .tw-bars-big { display: flex; gap: 3px; align-items: flex-end; height: 48px; margin: 16px 0 8px; padding: 0 2px; }
+  .tw-bar-big { flex: 1; border-radius: 2px 2px 0 0; transition: height 0.4s ease; min-width: 4px; }
+
+  .tw-legend { display: flex; gap: 16px; margin: 8px 0 12px; }
+  .tw-legend-item { display: flex; align-items: center; gap: 4px; font-size: 10px; color: #999; }
+  .tw-legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+  .tw-stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tw-stat { background: #2a2a2a; border-radius: 6px; padding: 10px 12px; }
+  .tw-stat-val { font-size: 16px; font-weight: 600; color: #e0e0e0; }
+  .tw-stat-label { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+
+  .tw-rate { margin-top: 12px; padding: 10px 12px; background: #10a37f11; border: 1px solid #10a37f33; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .tw-rate-label { font-size: 11px; color: #10a37f; }
+  .tw-rate-val { font-size: 13px; font-weight: 600; color: #10a37f; }
+
+  /* Start Menu */
+  .start-menu { position: fixed; bottom: 56px; left: 8px; width: 380px; background: #1e1e1e; border: 1px solid #333; border-radius: 12px; box-shadow: 0 -8px 32px rgba(0,0,0,0.5); z-index: 1000; display: none; overflow: hidden; }
+  .start-menu.open { display: block; }
+  .sm-search { padding: 12px 16px; border-bottom: 1px solid #2a2a2a; }
+  .sm-search input { width: 100%; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; padding: 10px 14px; color: #e0e0e0; font-size: 13px; outline: none; font-family: inherit; }
+  .sm-search input:focus { border-color: #10a37f; }
+  .sm-section { padding: 8px; }
+  .sm-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; padding: 8px 8px 4px; }
+  .sm-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .sm-app { display: flex; flex-direction: column; align-items: center; padding: 12px 8px; border-radius: 8px; cursor: pointer; }
+  .sm-app:hover { background: #2a2a2a; }
+  .sm-app-icon { font-size: 24px; margin-bottom: 4px; }
+  .sm-app-name { font-size: 10px; color: #999; }
+  .sm-footer { padding: 8px 12px; border-top: 1px solid #2a2a2a; display: flex; justify-content: space-between; }
+  .sm-footer-btn { padding: 6px 10px; border-radius: 6px; font-size: 11px; color: #999; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .sm-footer-btn:hover { background: #2a2a2a; color: #e0e0e0; }
+
+  /* Notification Center */
+  .notif-center { position: fixed; bottom: 56px; right: 8px; width: 380px; max-height: 500px; background: #1e1e1e; border: 1px solid #333; border-radius: 12px; box-shadow: 0 -8px 32px rgba(0,0,0,0.5); z-index: 1000; display: none; overflow: hidden; }
+  .notif-center.open { display: flex; flex-direction: column; }
+  .nc-header { padding: 14px 16px; border-bottom: 1px solid #2a2a2a; display: flex; justify-content: space-between; align-items: center; }
+  .nc-title { font-size: 14px; font-weight: 500; }
+  .nc-clear { font-size: 11px; color: #10a37f; cursor: pointer; }
+  .nc-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .nc-item { padding: 12px; border-radius: 8px; margin-bottom: 4px; cursor: pointer; border-left: 3px solid transparent; }
+  .nc-item:hover { background: #2a2a2a; }
+  .nc-item.warn { border-left-color: #e0af68; }
+  .nc-item.info { border-left-color: #10a37f; }
+  .nc-item.alert { border-left-color: #f7768e; }
+  .nc-item-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .nc-item-source { font-size: 10px; color: #666; }
+  .nc-item-time { font-size: 10px; color: #555; margin-left: auto; }
+  .nc-item-title { font-size: 12px; font-weight: 500; }
+  .nc-item-body { font-size: 11px; color: #999; margin-top: 2px; line-height: 1.4; }
+  .nc-item-depth { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #333; }
+  .nc-item-depth.expanded { display: block; }
+  .nc-depth-level { font-size: 11px; color: #999; padding: 4px 0; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .nc-depth-level:hover { color: #10a37f; }
+  .depth-tag { font-size: 9px; background: #333; color: #666; padding: 1px 5px; border-radius: 3px; }
+  .nc-depth-detail { display: none; background: #171717; border-radius: 6px; padding: 8px 10px; margin: 4px 0 4px 20px; font-family: monospace; font-size: 11px; color: #999; white-space: pre-wrap; }
+  .nc-depth-detail.show { display: block; }
+
+  /* Windows */
+  .window { position: absolute; background: #1e1e1e; border: 1px solid #2a2a2a; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: none; overflow: hidden; flex-direction: column; }
+  .window.open { display: flex; }
+  .window.maximized { top: 0 !important; left: 0 !important; right: 0 !important; bottom: 48px !important; width: auto !important; height: auto !important; border-radius: 0; border: none; }
+  .window.minimized { display: none !important; }
+  .win-header { height: 40px; background: #171717; border-bottom: 1px solid #2a2a2a; display: flex; align-items: center; padding: 0 12px; cursor: grab; flex-shrink: 0; }
+  .win-header:active { cursor: grabbing; }
+  .win-title { flex: 1; font-size: 12px; color: #999; padding-left: 8px; }
+  .win-controls { display: flex; }
+  .win-ctrl { width: 36px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #999; font-size: 14px; border-radius: 4px; }
+  .win-ctrl:hover { background: #2a2a2a; color: #fff; }
+  .win-ctrl.close:hover { background: #e81123; color: #fff; }
+  .win-body { flex: 1; overflow: hidden; display: flex; }
+
+  /* Chat */
+  .chat-panel { display: flex; flex-direction: column; height: 100%; width: 100%; }
+  .chat-messages { flex: 1; overflow-y: auto; padding: 20px 0; }
+  .chat-msg-wrap { max-width: 680px; margin: 0 auto; padding: 0 24px; }
+  .chat-msg { padding: 10px 0; display: flex; gap: 12px; }
+  .chat-msg-avatar { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; margin-top: 2px; font-weight: 600; }
+  .chat-msg-avatar.user { background: linear-gradient(135deg, #7c3aed, #a855f7); color: #fff; }
+  .chat-msg-avatar.ai { background: #10a37f; color: #fff; }
+  .chat-msg-body { flex: 1; font-size: 14px; line-height: 1.6; color: #d1d1d1; }
+  .chat-msg-body p { margin-bottom: 8px; }
+  .chat-msg-body code { background: #2a2a2a; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+
+  .action-card { background: #2a2a2a; border: 1px solid #333; border-radius: 10px; padding: 14px 16px; margin: 10px 0; }
+  .action-card-title { font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+  .action-card-desc { font-size: 12px; color: #999; line-height: 1.5; }
+
+  .depth-card { background: #2a2a2a; border: 1px solid #333; border-radius: 8px; margin: 8px 0; overflow: hidden; }
+  .depth-header { padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .depth-header:hover { background: #333; }
+  .depth-arrow { color: #666; font-size: 10px; margin-left: auto; transition: transform 0.2s; }
+  .depth-body { display: none; padding: 0 14px 12px; font-size: 12px; color: #999; line-height: 1.5; }
+  .depth-body.open { display: block; }
+  .depth-body pre { background: #171717; border-radius: 6px; padding: 8px 10px; font-family: monospace; font-size: 11px; margin: 6px 0; overflow-x: auto; white-space: pre; }
+  .drill-link { color: #10a37f; cursor: pointer; font-size: 11px; }
+  .drill-link:hover { text-decoration: underline; }
+
+  .action-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #10a37f; color: #fff; border: none; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit; margin-top: 4px; }
+  .action-btn:hover { background: #0d8c6c; }
+  .action-btn.outline { background: none; border: 1px solid #333; color: #999; }
+  .action-btn.outline:hover { border-color: #10a37f; color: #e0e0e0; }
+
+  .chat-input-area { padding: 12px 24px 16px; border-top: 1px solid #2a2a2a; }
+  .chat-input-wrap { max-width: 680px; margin: 0 auto; }
+  .chat-input { background: #2a2a2a; border: 1px solid #333; border-radius: 14px; padding: 12px 16px; display: flex; align-items: center; gap: 10px; }
+  .chat-input:focus-within { border-color: #10a37f; }
+  .chat-input input { background: none; border: none; color: #e0e0e0; font-size: 14px; flex: 1; outline: none; font-family: inherit; }
+  .chat-input input::placeholder { color: #666; }
+  .chat-ctx { font-size: 10px; color: #10a37f; background: #10a37f18; padding: 3px 8px; border-radius: 4px; margin-bottom: 6px; }
+
+  /* Settings */
+  .settings-layout { display: flex; height: 100%; width: 100%; }
+  .settings-sidebar { width: 200px; background: #171717; border-right: 1px solid #2a2a2a; padding: 8px 0; overflow-y: auto; flex-shrink: 0; }
+  .ss-item { padding: 9px 16px; font-size: 12px; color: #999; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .ss-item:hover { background: #212121; color: #e0e0e0; }
+  .ss-item.active { background: #2a2a2a; color: #fff; }
+  .settings-main { flex: 1; padding: 20px 24px; overflow-y: auto; }
+  .settings-summary { background: #2a2a2a; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; font-size: 13px; line-height: 1.5; }
+  .s-section { margin-bottom: 20px; }
+  .s-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 8px; }
+  .s-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; background: #2a2a2a; border-radius: 8px; margin-bottom: 4px; }
+  .s-row:hover { background: #333; }
+  .s-row-info { flex: 1; }
+  .s-row-title { font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .s-row-desc { font-size: 11px; color: #666; margin-top: 2px; }
+  .s-row-history { font-size: 10px; color: #555; margin-top: 2px; cursor: pointer; }
+  .s-row-history:hover { color: #10a37f; }
+  .guardian-badge { font-size: 9px; padding: 2px 6px; border-radius: 4px; background: #10a37f22; color: #10a37f; }
+  .guardian-badge.off { background: #33333366; color: #666; }
+  .toggle { width: 38px; height: 20px; background: #444; border-radius: 10px; position: relative; cursor: pointer; flex-shrink: 0; }
+  .toggle.on { background: #10a37f; }
+  .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: left 0.2s; }
+  .toggle.on::after { left: 20px; }
+  .slider-wrap { display: flex; align-items: center; gap: 10px; }
+  .slider { -webkit-appearance: none; width: 120px; height: 4px; background: #444; border-radius: 2px; outline: none; }
+  .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #10a37f; border-radius: 50%; cursor: pointer; }
+  .slider-val { font-size: 12px; color: #10a37f; min-width: 36px; text-align: right; }
+  .dropdown { background: #444; color: #e0e0e0; border: none; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-family: inherit; cursor: pointer; }
+
+  /* Guardian */
+  .g-card { background: #2a2a2a; border-radius: 8px; padding: 14px 16px; margin-bottom: 8px; border-left: 3px solid transparent; }
+  .g-card.drifted { border-left-color: #f7768e; }
+  .g-card.protected { border-left-color: #10a37f; }
+  .g-card-header { display: flex; justify-content: space-between; align-items: center; }
+  .g-card-title { font-size: 13px; font-weight: 500; }
+  .g-status { font-size: 10px; padding: 3px 8px; border-radius: 4px; }
+  .g-status.drift { background: #f7768e22; color: #f7768e; }
+  .g-status.ok { background: #10a37f22; color: #10a37f; }
+  .g-card-body { font-size: 12px; color: #999; margin-top: 6px; line-height: 1.5; }
+  .g-diff { background: #171717; border-radius: 6px; padding: 8px 12px; font-family: monospace; font-size: 11px; margin-top: 8px; }
+  .g-diff .del { color: #f7768e; }
+  .g-diff .add { color: #10a37f; }
+  .g-diff .meta { color: #555; }
+  .g-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+  /* App manager */
+  .app-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; cursor: pointer; }
+  .app-row:hover { background: #2a2a2a; }
+  .app-row.selected { background: #2a2a2a; outline: 1px solid #10a37f44; }
+  .ar-icon { font-size: 22px; width: 32px; text-align: center; }
+  .ar-info { flex: 1; }
+  .ar-name { font-size: 13px; font-weight: 500; }
+  .ar-meta { font-size: 11px; color: #666; }
+  .ar-size { font-size: 12px; color: #999; text-align: right; }
+  .ar-residue { font-size: 10px; color: #e0af68; text-align: right; margin-right: 8px; }
+  .up-panel { background: #2a2a2a; border-radius: 10px; padding: 16px 18px; margin-top: 14px; display: none; }
+  .up-panel.visible { display: block; }
+  .up-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 12px; border-bottom: 1px solid #33333344; }
+  .up-label { color: #999; }
+  .up-val { color: #e0e0e0; }
+  .up-val.warn { color: #e0af68; }
+  .up-files { background: #171717; border-radius: 6px; padding: 10px 14px; font-family: monospace; font-size: 11px; max-height: 120px; overflow-y: auto; color: #999; margin: 12px 0; }
+  .up-files .dir { color: #10a37f; }
+  .up-files .sz { color: #555; float: right; }
+
+  /* Spotlight */
+  .spotlight { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(6px); z-index: 2000; display: none; align-items: flex-start; justify-content: center; padding-top: 140px; }
+  .spotlight.open { display: flex; }
+  .spot-box { width: 580px; background: #1e1e1e; border: 1px solid #333; border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,0.5); overflow: hidden; }
+  .spot-input { display: flex; align-items: center; padding: 14px 18px; gap: 12px; border-bottom: 1px solid #2a2a2a; }
+  .spot-input input { background: none; border: none; color: #e0e0e0; font-size: 16px; flex: 1; outline: none; font-family: inherit; }
+  .spot-input input::placeholder { color: #555; }
+  .spot-results { max-height: 360px; overflow-y: auto; padding: 6px; }
+  .spot-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; cursor: pointer; }
+  .spot-item:hover, .spot-item.focused { background: #2a2a2a; }
+  .spot-item-icon { font-size: 18px; width: 28px; text-align: center; }
+  .spot-item-info { flex: 1; }
+  .spot-item-title { font-size: 13px; }
+  .spot-item-desc { font-size: 11px; color: #666; }
+  .spot-hint { padding: 8px 18px; font-size: 10px; color: #555; border-top: 1px solid #2a2a2a; display: flex; gap: 16px; }
+
+  /* Toast */
+  .toast { position: fixed; top: 16px; right: 16px; background: #2a2a2a; border: 1px solid #333; border-radius: 10px; padding: 14px 18px; min-width: 320px; max-width: 400px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 3000; display: none; animation: toastIn 0.3s ease; }
+  .toast.show { display: block; }
+  @keyframes toastIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .toast-close { position: absolute; top: 8px; right: 10px; cursor: pointer; color: #666; font-size: 14px; }
+  .toast-close:hover { color: #fff; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+  /* Connection status indicator */
+  .conn-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+  .conn-dot.green { background: #10a37f; box-shadow: 0 0 4px #10a37f; }
+  .conn-dot.yellow { background: #e0af68; box-shadow: 0 0 4px #e0af68; }
+  .conn-dot.red { background: #f7768e; box-shadow: 0 0 4px #f7768e; }
+
+  /* Typing indicator */
+  .typing-indicator { display: inline-flex; gap: 4px; padding: 4px 0; }
+  .typing-indicator span { width: 6px; height: 6px; border-radius: 50%; background: #666; animation: typingBounce 1.2s ease-in-out infinite; }
+  .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+  .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes typingBounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-6px); } }
+
+  /* Calcifer states */
+  .calcifer-speech { position: fixed; bottom: 64px; right: 100px; background: #2a2a2a; border: 1px solid #333; border-radius: 10px; padding: 8px 14px; font-size: 12px; color: #ccc; max-width: 220px; z-index: 610; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  .calcifer-speech.visible { display: block; animation: fadeUp 0.2s ease; }
+  .calcifer-speech::after { content: ''; position: absolute; bottom: -6px; right: 20px; width: 12px; height: 12px; background: #2a2a2a; border-right: 1px solid #333; border-bottom: 1px solid #333; transform: rotate(45deg); }
+
+  /* Toast stack */
+  .toast-stack { position: fixed; top: 16px; right: 16px; z-index: 3000; display: flex; flex-direction: column; gap: 8px; }
+  .toast-item { background: #2a2a2a; border: 1px solid #333; border-radius: 10px; padding: 14px 18px; min-width: 320px; max-width: 400px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); animation: toastIn 0.3s ease; position: relative; }
+  .toast-item .toast-close { position: absolute; top: 8px; right: 10px; cursor: pointer; color: #666; font-size: 14px; }
+  .toast-item .toast-close:hover { color: #fff; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar" id="sidebar">
+    <div class="sb-header"><button class="sb-toggle" onclick="toggleSidebar()">&#9776;</button><button class="sb-toggle" onclick="goHome()" style="font-size:18px;">&#43;</button></div>
+    <div class="sb-section-title">Open</div>
+    <div class="sb-list" id="sb-open-list"></div>
+    <div class="sb-divider"></div>
+    <div class="sb-section-title">Recent</div>
+    <div class="sb-list"><div class="sb-item" onclick="startChat('Fix display scaling issue')"><span class="sb-item-icon">&#128172;</span><span class="sb-item-text">Fix display scaling issue</span></div><div class="sb-item" onclick="startChat('Install Docker on server')"><span class="sb-item-icon">&#128172;</span><span class="sb-item-text">Install Docker on server</span></div><div class="sb-item" onclick="startChat('Why is my fan so loud?')"><span class="sb-item-icon">&#9002;</span><span class="sb-item-text">Why is my fan so loud?</span></div></div>
+    <div class="sb-footer"><div class="sb-user"><div class="sb-avatar">B</div><span style="font-size:13px;flex:1;">Ben</span><span style="font-size:14px;color:#666;">&#9881;</span></div></div>
+  </div>
+
+  <div class="main" id="main-area">
+    <div class="desktop" id="desktop">
+      <div class="desk-greeting"><h1>What can I help with?</h1><p>Ask anything, or type an app name to open it</p></div>
+      <div class="omnibar-wrap">
+        <div class="omnibar"><span style="color:#666;">&#128269;</span><input type="text" id="desk-input" placeholder="Message LLMOS..." onkeydown="if(event.key==='Enter')handleInput(this.value)" autocomplete="off"><span class="omnibar-key">Ctrl+Space</span><button class="omnibar-send" onclick="handleInput(document.getElementById('desk-input').value)">&#9654;</button></div>
+        <div class="inline-response" id="inline-response"></div>
+      </div>
+      <div class="desk-suggestions"><div class="desk-sug" onclick="handleInput('What is my IP address?')">What's my IP?</div><div class="desk-sug" onclick="handleInput('Why is my system slow?')">Why is it slow?</div><div class="desk-sug" onclick="handleInput('facebook')">Open Facebook</div><div class="desk-sug" onclick="handleInput('Uninstall Steam completely')">Uninstall Steam</div></div>
+      <div class="desk-quick-apps"><div class="desk-qapp" onclick="launchApp('settings')"><div class="desk-qapp-icon">&#9881;</div><div class="desk-qapp-label">Settings</div></div><div class="desk-qapp" onclick="launchApp('guardian')"><div class="desk-qapp-icon">&#128737;</div><div class="desk-qapp-label">Guardian</div></div><div class="desk-qapp" onclick="launchApp('apps')"><div class="desk-qapp-icon">&#128230;</div><div class="desk-qapp-label">Apps</div></div><div class="desk-qapp" onclick="launchApp('files')"><div class="desk-qapp-icon">&#128193;</div><div class="desk-qapp-label">Files</div></div><div class="desk-qapp" onclick="launchApp('terminal')"><div class="desk-qapp-icon">&#9002;</div><div class="desk-qapp-label">Terminal</div></div><div class="desk-qapp" onclick="launchApp('browser')"><div class="desk-qapp-icon">&#127760;</div><div class="desk-qapp-label">Browser</div></div></div>
+    </div>
+    <div id="window-container" style="position:absolute;inset:0;bottom:48px;pointer-events:none;overflow:hidden;"></div>
+    <div class="taskbar">
+      <div class="tb-start" onclick="toggleStartMenu()"><svg viewBox="0 0 24 24"><path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z"/></svg></div>
+      <div class="tb-sep"></div>
+      <div class="tb-apps" id="tb-apps"></div>
+      <div class="tb-right">
+        <!-- Token Monitor -->
+        <div class="token-monitor" id="token-monitor" onclick="toggleTokenWidget()" title="Token savings">
+          <div class="tm-bars" id="tm-bars"></div>
+          <div class="tm-stats"><span class="tm-pct" id="tm-pct">38%</span><span class="tm-label">saved</span></div>
+        </div>
+        <span class="tb-systray" onclick="toggleNotifCenter()">&#128276;<span class="notif-count" id="notif-count">3</span></span>
+        <span class="tb-systray">&#128266;</span>
+        <span class="tb-systray">&#128246;</span>
+        <span class="tb-systray" id="conn-status" title="Backend: checking..."><span class="conn-dot red" id="conn-dot"></span></span>
+        <div class="tb-clock" id="tb-clock"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======== TOKEN WIDGET (expanded) ======== -->
+<div class="token-widget" id="token-widget">
+  <div class="tw-header">
+    <span class="tw-title">Token Savings</span>
+    <span class="tw-close" onclick="toggleTokenWidget()">&times;</span>
+  </div>
+  <div class="tw-body">
+    <div class="tw-big-number" id="tw-saved-pct">38.1%</div>
+    <div class="tw-big-label">lifetime savings rate</div>
+    <div class="tw-big-sub" id="tw-saved-count">2,289,478 tokens saved</div>
+
+    <div class="tw-bars-big" id="tw-bars-big"></div>
+    <div class="tw-legend">
+      <div class="tw-legend-item"><div class="tw-legend-dot" style="background:#10a37f"></div> Saved</div>
+      <div class="tw-legend-item"><div class="tw-legend-dot" style="background:#e0af68"></div> Used</div>
+      <div class="tw-legend-item"><div class="tw-legend-dot" style="background:#7c3aed"></div> Cached</div>
+    </div>
+
+    <div class="tw-stats-grid">
+      <div class="tw-stat"><div class="tw-stat-val" id="tw-cache-hits">847</div><div class="tw-stat-label">Cache hits</div></div>
+      <div class="tw-stat"><div class="tw-stat-val" id="tw-local-routes">1,204</div><div class="tw-stat-label">Local routes</div></div>
+      <div class="tw-stat"><div class="tw-stat-val" id="tw-compressions">312</div><div class="tw-stat-label">Compressions</div></div>
+      <div class="tw-stat"><div class="tw-stat-val" id="tw-sessions">279</div><div class="tw-stat-label">Sessions</div></div>
+    </div>
+
+    <div class="tw-rate">
+      <span class="tw-rate-label">Estimated cost saved</span>
+      <span class="tw-rate-val" id="tw-cost-saved">$4.12</span>
+    </div>
+  </div>
+</div>
+
+<div class="start-menu" id="start-menu">
+  <div class="sm-search"><input type="text" placeholder="Search apps and settings..." autocomplete="off"></div>
+  <div class="sm-section"><div class="sm-section-title">Pinned</div><div class="sm-grid"><div class="sm-app" onclick="launchApp('settings');closeStartMenu()"><div class="sm-app-icon">&#9881;</div><div class="sm-app-name">Settings</div></div><div class="sm-app" onclick="launchApp('guardian');closeStartMenu()"><div class="sm-app-icon">&#128737;</div><div class="sm-app-name">Guardian</div></div><div class="sm-app" onclick="launchApp('apps');closeStartMenu()"><div class="sm-app-icon">&#128230;</div><div class="sm-app-name">Apps</div></div><div class="sm-app" onclick="launchApp('browser');closeStartMenu()"><div class="sm-app-icon">&#127760;</div><div class="sm-app-name">Browser</div></div><div class="sm-app" onclick="launchApp('files');closeStartMenu()"><div class="sm-app-icon">&#128193;</div><div class="sm-app-name">Files</div></div><div class="sm-app" onclick="launchApp('terminal');closeStartMenu()"><div class="sm-app-icon">&#9002;</div><div class="sm-app-name">Terminal</div></div><div class="sm-app" onclick="launchApp('monitor');closeStartMenu()"><div class="sm-app-icon">&#128200;</div><div class="sm-app-name">Monitor</div></div><div class="sm-app" onclick="launchApp('music');closeStartMenu()"><div class="sm-app-icon">&#127911;</div><div class="sm-app-name">Music</div></div></div></div>
+  <div class="sm-footer"><div class="sm-footer-btn">&#128100; Ben</div><div class="sm-footer-btn">&#9211; Sleep</div><div class="sm-footer-btn" style="color:#f7768e;">&#9211; Shut down</div></div>
+</div>
+
+<div class="notif-center" id="notif-center">
+  <div class="nc-header"><span class="nc-title">Notifications</span><span class="nc-clear" onclick="clearNotifs()">Clear all</span></div>
+  <div class="nc-list" id="nc-list">
+    <div class="nc-item alert" onclick="toggleNCDepth(this)">
+      <div class="nc-item-header"><span>&#128737;</span><span class="nc-item-source">Config Guardian</span><span class="nc-item-time">2 min ago</span></div>
+      <div class="nc-item-title">Display Scaling was changed</div>
+      <div class="nc-item-body">GNOME 46.1 reset scaling from 150% to 100%. Restored automatically.</div>
+      <div class="nc-item-depth">
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L2</span> What happened <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail">GNOME 46.1 post-install script reset org.gnome.desktop.interface scaling-factor to 1. Config Guardian detected this within 200ms and restored your saved value of 2 (150%).</div>
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L3</span> Config key <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail">dconf: /org/gnome/desktop/interface/scaling-factor
+Old: 2 (your setting)  New: 1 (postinst)  Restored: 2</div>
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L4</span> Journal log <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail">Apr 06 14:32:07 gnome-shell[1842]: scaling-factor changed to 1
+Apr 06 14:32:08 config-guardian[923]: DRIFT detected: 2->1
+Apr 06 14:32:08 config-guardian[923]: RESTORED -> 2
+Apr 06 14:32:08 config-guardian[923]: src: dpkg postinst gnome-shell 46.1</div>
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L5</span> Source code <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail"><span class="drill-link" onclick="launchApp('terminal')">Open: guardian --show-watcher scaling-factor</span></div>
+        <div style="display:flex;gap:8px;margin-top:8px;"><button class="action-btn" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();launchApp('guardian');toggleNotifCenter();">Open Guardian</button></div>
+      </div>
+    </div>
+    <div class="nc-item warn" onclick="toggleNCDepth(this)">
+      <div class="nc-item-header"><span>&#128200;</span><span class="nc-item-source">System Monitor</span><span class="nc-item-time">18 min ago</span></div>
+      <div class="nc-item-title">Disk full in ~5 days</div>
+      <div class="nc-item-body">At 2.1 GB/day, /home full by Apr 11. Top: ~/.cache (4.2 GB), Steam (1.8 GB/day).</div>
+      <div class="nc-item-depth">
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L2</span> Breakdown <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail">/home: 234/256 GB (91.4%), rate: 2.1 GB/day
+~/.cache/spotify  1.2 GB (offline songs)
+~/Steam           1.8 GB/day (game updates)
+~/.local/Trash    0.4 GB (not emptied)</div>
+        <div style="display:flex;gap:8px;margin-top:8px;"><button class="action-btn" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();launchApp('apps');toggleNotifCenter();">Clean up</button><button class="action-btn outline" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();">Empty trash</button></div>
+      </div>
+    </div>
+    <div class="nc-item info" onclick="toggleNCDepth(this)">
+      <div class="nc-item-header"><span>&#128737;</span><span class="nc-item-source">Update Watchdog</span><span class="nc-item-time">1h ago</span></div>
+      <div class="nc-item-title">NVIDIA 560 driver held back</div>
+      <div class="nc-item-body">Broke CUDA for 12% of RTX 3070 users. Holding at 555.42 until confirmed fix.</div>
+      <div class="nc-item-depth">
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L2</span> Why held <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail">LLMOS monitors community reports via Hyphae. 12% of RTX 3070 users on Ubuntu reported CUDA failures after 560.31. Your GPU matches. Auto-update resumes when failure rate drops below 2%.</div>
+        <div style="display:flex;gap:8px;margin-top:8px;"><button class="action-btn outline" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();">Install anyway</button><button class="action-btn outline" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();">Remind tomorrow</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="spotlight" id="spotlight" onclick="if(event.target===this)closeSpotlight()">
+  <div class="spot-box">
+    <div class="spot-input"><span style="font-size:18px;color:#10a37f;">&#128269;</span><input type="text" id="spot-input" placeholder="Search settings, apps, or ask anything..." oninput="onSpotSearch(this.value)" onkeydown="if(event.key==='Enter'){closeSpotlight();handleInput(this.value)}" autocomplete="off"></div>
+    <div class="spot-results" id="spot-results"><div class="spot-item"><span class="spot-item-icon">&#128161;</span><div class="spot-item-info"><div class="spot-item-desc" style="color:#555;">Try: "make text bigger", "open terminal", "what's using my CPU"</div></div></div></div>
+    <div class="spot-hint"><span>&#8593;&#8595; navigate</span><span>Enter to select</span><span>Esc to close</span><span style="margin-left:auto;">Ctrl+Space</span></div>
+  </div>
+</div>
+
+<div class="toast" id="toast">
+  <span class="toast-close" onclick="hideToast()">&#10005;</span>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span>&#128737;</span><span style="font-size:11px;color:#666;">Config Guardian</span></div>
+  <div style="font-size:13px;font-weight:500;">Display Scaling restored</div>
+  <div style="font-size:12px;color:#999;margin-top:4px;">GNOME 46.1 tried to reset your scaling. Restored to 150%.</div>
+  <div style="display:flex;gap:8px;margin-top:10px;"><button class="action-btn" style="font-size:11px;padding:5px 12px;" onclick="hideToast()">OK</button><button class="action-btn outline" style="font-size:11px;padding:5px 12px;" onclick="toggleNotifCenter();hideToast();">Details</button></div>
+</div>
+
+<div class="calcifer-speech" id="calcifer-speech"></div>
+<div class="toast-stack" id="toast-stack"></div>
+
+<script>
+// =========================================================================
+// LLMOS Backend Connection Layer
+// =========================================================================
+const LLMOS_BASE = 'http://localhost:7800';
+const LLMOS_WS_BASE = 'ws://localhost:7800';
+
+// Connection state
+const connState = {
+  mode: 'offline',        // 'ws', 'sse', 'offline'
+  chatWs: null,
+  calciferWs: null,
+  calciferSSE: null,
+  eventsWs: null,
+  eventsSSE: null,
+  sessionId: null,
+  calciferState: { mood: 'idle', animation: 'breathe', token_count: 0, speech: '' },
+  reconnectTimers: {},
+};
+
+// Generate a session ID
+function generateSessionId() {
+  return Math.random().toString(36).substring(2, 10);
+}
+
+// ---------------------------------------------------------------------------
+// Connection status indicator
+// ---------------------------------------------------------------------------
+function setConnectionStatus(mode) {
+  connState.mode = mode;
+  const dot = document.getElementById('conn-dot');
+  const status = document.getElementById('conn-status');
+  if (mode === 'ws') {
+    dot.className = 'conn-dot green';
+    status.title = 'Backend: WebSocket connected';
+  } else if (mode === 'sse') {
+    dot.className = 'conn-dot yellow';
+    status.title = 'Backend: SSE fallback';
+  } else {
+    dot.className = 'conn-dot red';
+    status.title = 'Backend: offline (demo mode)';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Capability detection & connection bootstrap
+// ---------------------------------------------------------------------------
+async function detectBackend() {
+  try {
+    const resp = await fetch(LLMOS_BASE + '/api/capabilities', { signal: AbortSignal.timeout(3000) });
+    if (!resp.ok) throw new Error('not ok');
+    const caps = await resp.json();
+
+    // Get a session ID
+    try {
+      const sr = await fetch(LLMOS_BASE + '/api/conversations', { method: 'POST', signal: AbortSignal.timeout(3000) });
+      const sd = await sr.json();
+      connState.sessionId = sd.session_id;
+    } catch(e) {
+      connState.sessionId = generateSessionId();
+    }
+
+    if (caps.websocket) {
+      // Try WebSocket connections
+      try {
+        await connectCalciferWS();
+        connectEventsWS();
+        setConnectionStatus('ws');
+        return;
+      } catch(e) {
+        console.warn('WS failed, falling back to SSE:', e);
+      }
+    }
+
+    // SSE fallback
+    connectCalciferSSE();
+    connectEventsSSE();
+    setConnectionStatus('sse');
+  } catch(e) {
+    console.log('Backend not available, running in demo mode');
+    setConnectionStatus('offline');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Calcifer WebSocket
+// ---------------------------------------------------------------------------
+function connectCalciferWS() {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(LLMOS_WS_BASE + '/ws/calcifer');
+    const timeout = setTimeout(() => { ws.close(); reject(new Error('timeout')); }, 5000);
+    ws.onopen = () => { clearTimeout(timeout); connState.calciferWs = ws; resolve(); };
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'calcifer_state') handleCalciferState(data);
+      } catch(err) {}
+    };
+    ws.onclose = () => {
+      connState.calciferWs = null;
+      // Reconnect after delay
+      clearTimeout(connState.reconnectTimers.calcifer);
+      connState.reconnectTimers.calcifer = setTimeout(() => {
+        if (connState.mode === 'ws') connectCalciferWS().catch(() => {
+          connectCalciferSSE();
+          if (connState.mode === 'ws') setConnectionStatus('sse');
+        });
+      }, 5000);
+    };
+    ws.onerror = (e) => { clearTimeout(timeout); reject(e); };
+  });
+}
+
+function connectCalciferSSE() {
+  if (connState.calciferSSE) { try { connState.calciferSSE.close(); } catch(e){} }
+  try {
+    const sse = new EventSource(LLMOS_BASE + '/sse/calcifer');
+    connState.calciferSSE = sse;
+    sse.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'calcifer_state') handleCalciferState(data);
+      } catch(err) {}
+    };
+    sse.onerror = () => {
+      sse.close();
+      connState.calciferSSE = null;
+    };
+  } catch(e) {}
+}
+
+// ---------------------------------------------------------------------------
+// Events WebSocket / SSE
+// ---------------------------------------------------------------------------
+function connectEventsWS() {
+  const ws = new WebSocket(LLMOS_WS_BASE + '/ws/events');
+  connState.eventsWs = ws;
+  ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.type === 'system_event') handleSystemEvent(data);
+    } catch(err) {}
+  };
+  ws.onclose = () => {
+    connState.eventsWs = null;
+    clearTimeout(connState.reconnectTimers.events);
+    connState.reconnectTimers.events = setTimeout(() => {
+      if (connState.mode !== 'offline') {
+        try { connectEventsWS(); } catch(e) { connectEventsSSE(); }
+      }
+    }, 5000);
+  };
+}
+
+function connectEventsSSE() {
+  if (connState.eventsSSE) { try { connState.eventsSSE.close(); } catch(e){} }
+  try {
+    const sse = new EventSource(LLMOS_BASE + '/sse/events');
+    connState.eventsSSE = sse;
+    sse.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'system_event') handleSystemEvent(data);
+      } catch(err) {}
+    };
+    sse.onerror = () => { sse.close(); connState.eventsSSE = null; };
+  } catch(e) {}
+}
+
+// ---------------------------------------------------------------------------
+// Calcifer state handler — updates CSS animations & speech
+// ---------------------------------------------------------------------------
+function handleCalciferState(data) {
+  connState.calciferState = data;
+  // Update token counter if we have one visible
+  const tokenEl = document.getElementById('calcifer-tokens');
+  if (tokenEl && data.token_count !== undefined) {
+    tokenEl.textContent = data.token_count.toLocaleString();
+  }
+  // Show speech bubble
+  if (data.speech) {
+    showCalciferSpeech(data.speech);
+  } else {
+    hideCalciferSpeech();
+  }
+}
+
+function showCalciferSpeech(text) {
+  const el = document.getElementById('calcifer-speech');
+  el.textContent = text;
+  el.classList.add('visible');
+  clearTimeout(el._hideTimer);
+  el._hideTimer = setTimeout(() => el.classList.remove('visible'), 6000);
+}
+
+function hideCalciferSpeech() {
+  document.getElementById('calcifer-speech').classList.remove('visible');
+}
+
+// ---------------------------------------------------------------------------
+// System event handler — dynamic Guardian cards + toast notifications
+// ---------------------------------------------------------------------------
+function handleSystemEvent(data) {
+  // Config drift events -> update Guardian cards if guardian window is open
+  if (data.source === 'config_guardian' || data.event_type === 'config_drift') {
+    updateGuardianCard(data);
+  }
+  // Show toast for notable events
+  if (data.severity === 'warning' || data.severity === 'alert' || data.notify) {
+    showEventToast(data);
+  }
+  // Add to notification center
+  addNotification(data);
+}
+
+function updateGuardianCard(evt) {
+  const guardianWin = openWindows['guardian'];
+  if (!guardianWin) return;
+  const container = guardianWin.el.querySelector('.win-body > div > div:last-child');
+  if (!container) return;
+  const card = document.createElement('div');
+  card.className = 'g-card drifted';
+  card.innerHTML = `<div class="g-card-header"><span class="g-card-title">${esc(evt.setting || evt.title || 'Config Change')}</span><span class="g-status drift">Drifted</span></div><div class="g-card-body">${esc(evt.description || evt.message || '')}</div><div class="g-actions"><button class="action-btn" onclick="this.closest('.g-card').className='g-card protected';this.closest('.g-card').querySelector('.g-status').className='g-status ok';this.closest('.g-card').querySelector('.g-status').textContent='Restored';this.closest('.g-actions').innerHTML='<span style=color:#10a37f;font-size:12px>Restored.</span>'">Restore</button><button class="action-btn outline">Accept</button></div>`;
+  container.insertBefore(card, container.querySelector('.g-card'));
+}
+
+function showEventToast(evt) {
+  const stack = document.getElementById('toast-stack');
+  const toast = document.createElement('div');
+  toast.className = 'toast-item';
+  const icon = evt.source === 'config_guardian' ? '&#128737;' : evt.source === 'thermal' ? '&#127777;' : '&#128276;';
+  const src = evt.source || 'System';
+  toast.innerHTML = `<span class="toast-close" onclick="this.parentElement.remove()">&#10005;</span><div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span>${icon}</span><span style="font-size:11px;color:#666;">${esc(src)}</span></div><div style="font-size:13px;font-weight:500;">${esc(evt.title || evt.event_type || 'Event')}</div><div style="font-size:12px;color:#999;margin-top:4px;">${esc(evt.message || evt.description || '')}</div>`;
+  stack.appendChild(toast);
+  setTimeout(() => { if (toast.parentElement) toast.remove(); }, 8000);
+}
+
+function addNotification(evt) {
+  const ncList = document.getElementById('nc-list');
+  if (!ncList) return;
+  // Remove "all caught up" placeholder
+  const placeholder = ncList.querySelector('div[style*="text-align:center"]');
+  if (placeholder && placeholder.textContent.includes('All caught up')) placeholder.remove();
+
+  const severity = evt.severity === 'alert' ? 'alert' : evt.severity === 'warning' ? 'warn' : 'info';
+  const item = document.createElement('div');
+  item.className = 'nc-item ' + severity;
+  item.onclick = function() { toggleNCDepth(this); };
+  item.innerHTML = `<div class="nc-item-header"><span>&#128276;</span><span class="nc-item-source">${esc(evt.source || 'System')}</span><span class="nc-item-time">just now</span></div><div class="nc-item-title">${esc(evt.title || evt.event_type || 'Event')}</div><div class="nc-item-body">${esc(evt.message || evt.description || '')}</div>`;
+  ncList.insertBefore(item, ncList.firstChild);
+
+  // Update count
+  const countEl = document.getElementById('notif-count');
+  countEl.style.display = 'flex';
+  countEl.textContent = String(Math.min(99, parseInt(countEl.textContent || '0') + 1));
+}
+
+// ---------------------------------------------------------------------------
+// Chat: WebSocket streaming with SSE + REST fallbacks
+// ---------------------------------------------------------------------------
+async function sendChatMessage(text, winId, msgWrapEl, inputEl) {
+  if (connState.mode === 'offline') {
+    // Demo mode fallback
+    appendAIMessage(msgWrapEl, getAI(text), winId);
+    return;
+  }
+
+  // Create AI message container for streaming
+  const aiDiv = document.createElement('div');
+  aiDiv.className = 'chat-msg';
+  aiDiv.innerHTML = `<div class="chat-msg-avatar ai">L</div><div class="chat-msg-body"><div class="typing-indicator"><span></span><span></span><span></span></div></div>`;
+  msgWrapEl.appendChild(aiDiv);
+  const bodyEl = aiDiv.querySelector('.chat-msg-body');
+  scrollChat(winId);
+
+  const sessionId = connState.sessionId || generateSessionId();
+  let fullResponse = '';
+  let gotResponse = false;
+
+  // Try WebSocket first
+  if (connState.mode === 'ws') {
+    try {
+      await streamChatWS(text, sessionId, bodyEl, winId, (resp) => { fullResponse = resp; gotResponse = true; });
+      if (gotResponse) return;
+    } catch(e) {
+      console.warn('WS chat failed, trying SSE:', e);
+    }
+  }
+
+  // Try SSE
+  if (connState.mode === 'ws' || connState.mode === 'sse') {
+    try {
+      await streamChatSSE(text, sessionId, bodyEl, winId, (resp) => { fullResponse = resp; gotResponse = true; });
+      if (gotResponse) return;
+    } catch(e) {
+      console.warn('SSE chat failed, trying REST:', e);
+    }
+  }
+
+  // REST fallback
+  try {
+    const resp = await fetch(LLMOS_BASE + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const data = await resp.json();
+    bodyEl.innerHTML = `<p>${esc(data.message || 'No response')}</p>`;
+    if (data.suggestions && data.suggestions.length > 0) {
+      bodyEl.innerHTML += data.suggestions.map(s => `<button class="action-btn outline" style="font-size:11px;margin:2px;" onclick="handleInput('${esc(s)}')">${esc(s)}</button>`).join('');
+    }
+    scrollChat(winId);
+  } catch(e) {
+    // Total fallback to demo mode
+    bodyEl.innerHTML = '';
+    appendAIMessageContent(bodyEl, getAI(text));
+    scrollChat(winId);
+  }
+}
+
+function streamChatWS(text, sessionId, bodyEl, winId, onDone) {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(LLMOS_WS_BASE + '/ws/chat');
+    let tokens = [];
+    let resolved = false;
+    const timeout = setTimeout(() => { if (!resolved) { ws.close(); reject(new Error('timeout')); } }, 60000);
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ text: text, session_id: sessionId }));
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.type === 'token') {
+          tokens.push(data.content);
+          // Remove typing indicator on first token
+          const typing = bodyEl.querySelector('.typing-indicator');
+          if (typing) typing.remove();
+          // Render accumulated tokens
+          bodyEl.innerHTML = renderMarkdown(tokens.join(''));
+          scrollChat(winId);
+        } else if (data.type === 'done') {
+          clearTimeout(timeout);
+          const full = tokens.join('');
+          onDone(full);
+          resolved = true;
+          ws.close();
+          resolve();
+        } else if (data.type === 'error') {
+          clearTimeout(timeout);
+          if (tokens.length === 0) {
+            bodyEl.innerHTML = `<p style="color:#f7768e;">Error: ${esc(data.message)}</p>`;
+          }
+          resolved = true;
+          ws.close();
+          resolve();
+        } else if (data.type === 'calcifer') {
+          // Inline calcifer state from chat stream
+          handleCalciferState({ type: 'calcifer_state', mood: data.mood, speech: data.speech || '' });
+        }
+      } catch(err) {}
+    };
+
+    ws.onerror = (e) => { clearTimeout(timeout); if (!resolved) { resolved = true; reject(e); } };
+    ws.onclose = () => { clearTimeout(timeout); if (!resolved) { resolved = true; resolve(); } };
+  });
+}
+
+function streamChatSSE(text, sessionId, bodyEl, winId, onDone) {
+  return new Promise((resolve, reject) => {
+    let tokens = [];
+    let resolved = false;
+    const timeout = setTimeout(() => { if (!resolved) { resolved = true; reject(new Error('timeout')); } }, 60000);
+
+    fetch(LLMOS_BASE + '/sse/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text, session_id: sessionId }),
+    }).then(response => {
+      if (!response.ok) throw new Error('SSE chat response not ok');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      function processStream() {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            clearTimeout(timeout);
+            if (!resolved) { resolved = true; onDone(tokens.join('')); resolve(); }
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep incomplete line
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(line.substring(6));
+              if (data.type === 'token') {
+                tokens.push(data.content);
+                const typing = bodyEl.querySelector('.typing-indicator');
+                if (typing) typing.remove();
+                bodyEl.innerHTML = renderMarkdown(tokens.join(''));
+                scrollChat(winId);
+              } else if (data.type === 'done' || data.type === 'stream_end') {
+                clearTimeout(timeout);
+                if (!resolved) { resolved = true; onDone(tokens.join('')); resolve(); }
+                return;
+              } else if (data.type === 'error') {
+                clearTimeout(timeout);
+                if (tokens.length === 0) {
+                  bodyEl.innerHTML = `<p style="color:#f7768e;">Error: ${esc(data.message)}</p>`;
+                }
+                if (!resolved) { resolved = true; resolve(); }
+                return;
+              } else if (data.type === 'calcifer') {
+                handleCalciferState({ type: 'calcifer_state', mood: data.mood, speech: data.speech || '' });
+              }
+            } catch(err) {}
+          }
+          processStream();
+        }).catch(e => {
+          clearTimeout(timeout);
+          if (!resolved) { resolved = true; reject(e); }
+        });
+      }
+      processStream();
+    }).catch(e => {
+      clearTimeout(timeout);
+      if (!resolved) { resolved = true; reject(e); }
+    });
+  });
+}
+
+// Simple markdown renderer for streamed tokens
+function renderMarkdown(text) {
+  // Escape HTML first
+  let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Code blocks
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:#171717;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:11px;margin:6px 0;overflow-x:auto;white-space:pre;">$2</pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Bold
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // Italic
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Paragraphs (double newlines)
+  html = html.replace(/\n\n/g, '</p><p>');
+  // Single newlines -> <br>
+  html = html.replace(/\n/g, '<br>');
+  return '<p>' + html + '</p>';
+}
+
+function scrollChat(winId) {
+  const w = openWindows[winId];
+  if (w) {
+    const msgs = w.el.querySelector('.chat-messages');
+    if (msgs) msgs.scrollTop = msgs.scrollHeight;
+  }
+}
+
+function appendAIMessage(msgWrapEl, htmlContent, winId) {
+  const div = document.createElement('div');
+  div.className = 'chat-msg';
+  div.innerHTML = `<div class="chat-msg-avatar ai">L</div><div class="chat-msg-body">${htmlContent}</div>`;
+  msgWrapEl.appendChild(div);
+  scrollChat(winId);
+}
+
+function appendAIMessageContent(bodyEl, htmlContent) {
+  bodyEl.innerHTML = htmlContent;
+}
+
+// ---------------------------------------------------------------------------
+// Inline response for short queries (< 100 chars, single line)
+// ---------------------------------------------------------------------------
+async function handleInlineResponse(text) {
+  if (connState.mode === 'offline') return false;
+
+  // Quick check: if it matches a known quick answer or app word, skip
+  const l = text.toLowerCase();
+  for (const [k, q] of Object.entries(quickAns)) {
+    if (q.m.some(m => l.includes(m))) return false; // handled by demo mode
+  }
+  for (const [k, ws] of Object.entries(appWords)) {
+    if (ws.some(w => l.includes(w))) return false; // app launch
+  }
+
+  // Try a quick REST call to see if the response is short
+  try {
+    const resp = await fetch(LLMOS_BASE + '/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: text }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await resp.json();
+    const msg = data.message || '';
+    // If short and single-line, show inline
+    if (msg.length > 0 && msg.length < 100 && !msg.includes('\n')) {
+      showInline(`<p>${esc(msg)}</p>`, text);
+      return true;
+    }
+    return false; // Fall through to full chat
+  } catch(e) {
+    return false;
+  }
+}
+
+// =========================================================================
+// Original UI Code (preserved)
+// =========================================================================
+let openWindows={},topZ=100,activeWinId=null,activeContext=null;
+
+function updateClock(){const n=new Date(),h=n.getHours().toString().padStart(2,'0'),m=n.getMinutes().toString().padStart(2,'0');const mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];document.getElementById('tb-clock').innerHTML=`${h}:${m}<br><span style="font-size:10px">${mo[n.getMonth()]} ${n.getDate()}</span>`;}
+updateClock();setInterval(updateClock,10000);
+
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('collapsed');}
+function updateSidebar(){const l=document.getElementById('sb-open-list');l.innerHTML='';for(const[id,w]of Object.entries(openWindows)){const i=document.createElement('div');i.className='sb-item'+(id===activeWinId?' active':'')+(w.state==='minimized'?' minimized':'');i.innerHTML=`<span class="sb-dot"></span><span class="sb-item-icon">${w.icon}</span><span class="sb-item-text">${w.title}</span><span class="sb-item-close" onclick="event.stopPropagation();closeWindow('${id}')">&#10005;</span>`;i.onclick=()=>focusWindow(id);l.appendChild(i);}}
+function updateTaskbar(){const t=document.getElementById('tb-apps');t.innerHTML='';for(const[id,w]of Object.entries(openWindows)){const e=document.createElement('div');e.className='tb-app'+(id===activeWinId?' active':'');e.innerHTML=`<span>${w.icon}</span> ${w.title}`;e.onclick=()=>id===activeWinId&&w.state!=='minimized'?minimizeWindow(id):focusWindow(id);t.appendChild(e);}}
+
+function createWindow(id,title,icon,content,opts={}){if(openWindows[id]){focusWindow(id);return;}const c=document.getElementById('window-container'),el=document.createElement('div');el.className='window open';el.id='win-'+id;el.style.pointerEvents='auto';if(opts.type==='chat'){el.style.width='40%';el.style.height='100%';el.style.top='0';el.style.right='0';el.style.left='auto';}else{el.style.width=(opts.width||800)+'px';el.style.height=(opts.height||520)+'px';el.style.top=(40+Object.keys(openWindows).length*25)+'px';el.style.left=(60+Object.keys(openWindows).length*25)+'px';}el.style.zIndex=++topZ;el.innerHTML=`<div class="win-header" onmousedown="startDrag(event,'${id}')"><span style="font-size:14px;">${icon}</span><div class="win-title">${title}</div><div class="win-controls"><div class="win-ctrl" onclick="minimizeWindow('${id}')" title="Minimize">&#8211;</div><div class="win-ctrl" onclick="toggleMaximize('${id}')" title="Maximize">&#9634;</div><div class="win-ctrl close" onclick="closeWindow('${id}')" title="Close">&#10005;</div></div></div><div class="win-body">${content}</div>`;el.addEventListener('mousedown',()=>{el.style.zIndex=++topZ;setActive(id);});c.appendChild(el);openWindows[id]={title,icon,state:'normal',el,type:opts.type||'app',context:opts.context||null};setActive(id);document.getElementById('desktop').classList.add('hidden');updateSidebar();updateTaskbar();}
+function setActive(id){activeWinId=id;activeContext=openWindows[id]?.context||{window:openWindows[id]?.title};}
+function closeWindow(id){openWindows[id]?.el.remove();delete openWindows[id];activeWinId=Object.keys(openWindows).pop()||null;if(!Object.keys(openWindows).length)document.getElementById('desktop').classList.remove('hidden');updateSidebar();updateTaskbar();}
+function minimizeWindow(id){const w=openWindows[id];if(!w)return;w.state='minimized';w.el.classList.add('minimized');activeWinId=Object.entries(openWindows).filter(([k,v])=>v.state!=='minimized').pop()?.[0]||null;if(!activeWinId)document.getElementById('desktop').classList.remove('hidden');updateSidebar();updateTaskbar();}
+function focusWindow(id){const w=openWindows[id];if(!w)return;if(w.state==='minimized'){w.state='normal';w.el.classList.remove('minimized');document.getElementById('desktop').classList.add('hidden');}w.el.style.zIndex=++topZ;setActive(id);updateSidebar();updateTaskbar();}
+function toggleMaximize(id){const w=openWindows[id];if(!w)return;w.state=w.state==='maximized'?'normal':'maximized';w.el.classList.toggle('maximized');}
+function goHome(){for(const id of Object.keys(openWindows))minimizeWindow(id);document.getElementById('desktop').classList.remove('hidden');document.getElementById('desk-input').focus();}
+
+let dragId=null,dragOff={};
+function startDrag(e,id){const w=openWindows[id];if(!w||w.state==='maximized')return;dragId=id;dragOff={x:e.clientX-w.el.offsetLeft,y:e.clientY-w.el.offsetTop};document.addEventListener('mousemove',onDrag);document.addEventListener('mouseup',stopDrag);w.el.style.zIndex=++topZ;setActive(id);updateSidebar();updateTaskbar();}
+function onDrag(e){if(!dragId)return;const el=openWindows[dragId].el;el.style.left=(e.clientX-dragOff.x)+'px';el.style.top=(e.clientY-dragOff.y)+'px';}
+function stopDrag(){dragId=null;document.removeEventListener('mousemove',onDrag);document.removeEventListener('mouseup',stopDrag);}
+
+const appWords={settings:['settings','preferences'],guardian:['guardian','config guard','drift'],apps:['apps','app manager','uninstall','programs','software','remove'],browser:['browser','firefox','chrome','web','internet','facebook','youtube','google','reddit','twitter','github'],files:['files','file manager','documents','folder','explorer'],terminal:['terminal','console','shell','bash','command'],monitor:['monitor','system monitor','task manager','cpu','ram']};
+const quickAns={ip:{m:['my ip','ip address'],a:'<p><strong>LAN:</strong> 192.168.0.206<br><strong>Public:</strong> 74.12.xxx.xxx</p>'},time:{m:['what time','current time'],a:()=>`<p>${new Date().toLocaleTimeString()}</p>`},uptime:{m:['uptime','how long running'],a:'<p><strong>4 days, 7 hours, 23 minutes</strong></p>'},disk:{m:['disk space','storage','how much space'],a:'<p><strong>/home:</strong> 234/256 GB (91.4%)<br><strong>/:</strong> 12/64 GB<br>Largest: Steam (48 GB), .cache (4.2 GB)</p>'}};
+
+function handleInput(v){if(!v||!v.trim())return;v=v.trim();const l=v.toLowerCase();
+// Quick answers (demo mode or always-available local answers)
+for(const[k,q]of Object.entries(quickAns)){if(q.m.some(m=>l.includes(m))){showInline(typeof q.a==='function'?q.a():q.a,v);document.getElementById('desk-input').value='';return;}}
+// App launches
+for(const[k,ws]of Object.entries(appWords)){if(ws.some(w=>l.includes(w))){if(['facebook','youtube','google','reddit','twitter','github'].some(s=>l.includes(s)))launchBrowserWith(v);else launchApp(k);document.getElementById('desk-input').value='';hideInline();return;}}
+hideInline();document.getElementById('desk-input').value='';
+// If backend is available, try inline response for short answers first
+if(connState.mode!=='offline'){handleInlineResponse(v).then(handled=>{if(!handled)startChat(v);});}else{startChat(v);}}
+
+function showInline(html,q){const ir=document.getElementById('inline-response');ir.innerHTML=`<div class="ir-header"><div class="ir-avatar">L</div><span style="font-size:11px;color:#666;">LLMOS</span></div><div class="ir-body">${html}</div><div class="ir-actions"><button class="action-btn outline" style="font-size:11px;padding:4px 10px;" onclick="hideInline()">Dismiss</button><span class="ir-expand" onclick="hideInline();startChat('${q.replace(/'/g,"\\'")}')">Open as conversation &#8594;</span></div>`;ir.classList.add('visible');clearTimeout(ir._t);ir._t=setTimeout(()=>ir.classList.remove('visible'),15000);}
+function hideInline(){document.getElementById('inline-response').classList.remove('visible');}
+
+let chatN=0;
+function startChat(msg){chatN++;const id='chat-'+chatN,short=msg.length>28?msg.substring(0,28)+'...':msg,ctx=activeContext?.window&&activeContext.window!=='Desktop'?`<div class="chat-ctx">Context: ${activeContext.window}</div>`:'';
+createWindow(id,short,'&#128172;',`<div class="chat-panel"><div class="chat-messages"><div class="chat-msg-wrap"><div class="chat-msg"><div class="chat-msg-avatar user">B</div><div class="chat-msg-body"><p>${esc(msg)}</p></div></div></div></div><div class="chat-input-area"><div class="chat-input-wrap">${ctx}<div class="chat-input"><input type="text" placeholder="Reply..." onkeydown="if(event.key==='Enter')addMsg(this,'${id}')" autocomplete="off"><button class="omnibar-send" style="width:28px;height:28px;font-size:12px;" onclick="addMsg(this.previousElementSibling,'${id}')">&#9654;</button></div></div></div></div>`,{type:'chat',context:{window:'Chat: '+short}});
+// Send the message to backend (or demo fallback)
+const wrap=openWindows[id]?.el.querySelector('.chat-msg-wrap');
+if(wrap){sendChatMessage(msg,id,wrap,null);}}
+
+function getAI(msg){const l=msg.toLowerCase(),ctx=activeContext?.window||'';
+if(l.includes('slow')||l.includes('performance')||l.includes('lag'))return`<p>Checking your system...</p><div class="action-card"><div class="action-card-title">&#128200; System Status</div><div class="action-card-desc">CPU: 23% &bull; RAM: 8.2/32 GB &bull; GPU: 45%</div></div><p><strong>Firefox</strong> — 47 tabs, 1.8 GB. <strong>Ollama</strong> — 3.2 GB (Gemma 4).</p><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L2</span> Process table <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>PID   %CPU  %MEM  COMMAND
+1842  4.2   5.6   firefox (47 tabs)
+ 923  2.1  10.0   ollama serve
+3201  1.8   2.8   code
+ 445  1.2   0.7   Xorg</pre><span class="drill-link" onclick="launchApp('monitor')">&#128200; Open System Monitor</span></div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L3</span> Firefox tab memory <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>YouTube (3 tabs)    412 MB
+Reddit               89 MB
+GitHub               67 MB
+Docs/Sheets (8)     234 MB
+Other (33 tabs)     998 MB</pre><button class="action-btn" style="font-size:11px;">Suspend inactive tabs</button></div></div><p>Want me to suspend inactive tabs? (~800 MB freed)</p><button class="action-btn">Suspend tabs</button> <button class="action-btn outline">Show more</button>`;
+if(l.includes('scaling')||l.includes('display')||l.includes('bigger')||l.includes('text size'))return`<p>Current scaling: <strong>150%</strong>. Adjust here:</p><div class="action-card"><div class="action-card-title">&#128424; Display Scaling</div><div class="action-card-desc"><div class="slider-wrap" style="margin-top:8px;"><span style="font-size:12px;color:#999;">100%</span><input type="range" class="slider" min="100" max="200" step="25" value="150" style="width:200px;" oninput="this.nextElementSibling.textContent=this.value+'%'"><span class="slider-val">150%</span><span style="font-size:12px;color:#999;">200%</span></div></div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L3</span> Config key <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>dconf: /org/gnome/desktop/interface/scaling-factor
+Current: 2 (150%)
+Guardian: Protected</pre></div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L4</span> Change history <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>Apr 06 14:32  Drifted (gnome-shell 46.1) -> Restored
+Mar 28 09:15  Set to 150% by user
+Mar 01        Initial: 100%</pre></div></div><p>Config Guardian is protecting this. It won't reset.</p><button class="action-btn">Apply</button> <button class="action-btn outline" onclick="launchApp('settings')">Open Settings</button>`;
+if(l.includes('uninstall')||l.includes('remove')||l.includes('steam')||l.includes('clean'))return`<p>Apps with leftover files:</p><div class="action-card"><div class="action-card-title">&#128465; Residual Files</div><div class="action-card-desc"><strong>Steam</strong> — 2.4 GB + 48 GB games + 340 MB residue<br><strong>Spotify</strong> — 180 MB + 1.2 GB cache<br><strong>GIMP</strong> — 312 MB + 24 MB plugins</div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L3</span> Steam file map <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>~/.steam/              config
+~/.local/share/Steam/  48.2 GB
+  steamapps/           47.8 GB (23 games)
+  config/              4 MB
+~/.config/unity3d/     saves (82 MB)
+steam.desktop          MIME handler</pre></div></div><p>Which one?</p><button class="action-btn" onclick="launchApp('apps')">Open App Manager</button> <button class="action-btn outline">Remove Steam (keep games)</button>`;
+if(l.includes('fan')||l.includes('loud')||l.includes('hot')||l.includes('temperature'))return`<p>Checking thermals...</p><div class="action-card"><div class="action-card-title">&#127777; Thermal Status</div><div class="action-card-desc">CPU: 72C (high) &bull; GPU: 58C (normal) &bull; Fan: 2,400 RPM</div></div><p>Hyphae recalls: <em>"fan loud after NVIDIA 560 driver, March 30"</em></p><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L2</span> Temp history <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>Mar 29  52C  1,200 RPM
+Mar 30  68C  2,100 RPM  <- NVIDIA 560
+Apr 01  71C  2,300 RPM
+Apr 06  72C  2,400 RPM</pre>Clear correlation. Driver already held by Watchdog.</div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L4</span> sensors output <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>coretemp Package: +72.0C (crit +105.0C)
+  Core 0: +70.0C
+  Core 1: +72.0C
+nvidia-gpu: +58.0C</pre></div></div><p>Roll back to NVIDIA 555?</p><button class="action-btn">Rollback to 555</button> <button class="action-btn outline">Monitor</button>`;
+if(l.includes('docker'))return`<p>Docker not installed. Set it up?</p><div class="action-card"><div class="action-card-title">&#128011; Docker Install</div><div class="action-card-desc">Docker Engine + Compose. ~2 min, 350 MB.</div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L4</span> Commands <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>sudo apt-get update
+sudo apt-get install ca-certificates curl
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor ...
+sudo apt-get install docker-ce docker-compose-plugin
+sudo usermod -aG docker $USER</pre></div></div><button class="action-btn">Install Docker</button> <button class="action-btn outline">Show steps first</button>`;
+const cn=ctx&&ctx!=='Desktop'?`<p style="font-size:12px;color:#10a37f;">Context: <strong>${ctx}</strong></p>`:'';
+return`${cn}<p>Let me look into that.</p><div class="action-card"><div class="action-card-title">Available</div><div class="action-card-desc">&bull; Search settings &bull; Run diagnostics &bull; Open apps &bull; Check Guardian &bull; Search Hyphae</div></div><p>Could you tell me more?</p>`;}
+
+function togDepth(el){const b=el.nextElementSibling;b.classList.toggle('open');el.querySelector('.depth-arrow').style.transform=b.classList.contains('open')?'rotate(180deg)':'';}
+function addMsg(input,winId){const m=input.value.trim();if(!m)return;input.value='';const w=openWindows[winId]?.el.querySelector('.chat-msg-wrap');if(!w)return;
+// Add user message
+const userDiv=document.createElement('div');userDiv.className='chat-msg';userDiv.innerHTML=`<div class="chat-msg-avatar user">B</div><div class="chat-msg-body"><p>${esc(m)}</p></div>`;w.appendChild(userDiv);
+// Stream AI response (or demo fallback)
+sendChatMessage(m,winId,w,input);}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function launchApp(n){closeStartMenu();({settings:launchSettings,guardian:launchGuardian,apps:launchAppManager,browser:launchBrowser,files:launchFiles,terminal:launchTerminal,monitor:launchMonitor}[n]||(()=>createWindow(n,n,'&#128196;',`<div style="display:flex;align-items:center;justify-content:center;height:100%;width:100%;color:#555;">${n} — coming soon</div>`,{width:600,height:400})))();}
+function launchBrowserWith(q){launchBrowser();setTimeout(()=>{const w=openWindows['browser'];if(w){const u=w.el.querySelector('.browser-url');if(u)u.textContent=q.toLowerCase().includes('facebook')?'facebook.com':q;}},50);}
+
+function launchSettings(){createWindow('settings','Settings','&#9881;',`<div class="settings-layout"><div class="settings-sidebar"><div class="ss-item active"><span>&#128424;</span> Display</div><div class="ss-item"><span>&#127925;</span> Sound</div><div class="ss-item"><span>&#9000;</span> Keyboard</div><div class="ss-item"><span>&#127760;</span> Network</div><div class="ss-item"><span>&#128230;</span> Default Apps</div><div class="ss-item"><span>&#128276;</span> Notifications</div><div class="ss-item"><span>&#128274;</span> Privacy</div></div><div class="settings-main"><div class="settings-summary"><span style="font-size:24px;">&#9989;</span><div><strong style="color:#10a37f;">All good.</strong> 12 configs protected. Scaling restored today.</div></div><div class="s-section"><div class="s-section-title">Display</div><div class="s-row"><div class="s-row-info"><div class="s-row-title">Scaling <span class="guardian-badge">&#128737; Protected</span></div><div class="s-row-desc">Text and UI size</div><div class="s-row-history">Changed 3x this month &#8250;</div></div><div class="slider-wrap"><input type="range" class="slider" min="100" max="200" step="25" value="150" oninput="this.nextElementSibling.textContent=this.value+'%'"><span class="slider-val">150%</span></div></div><div class="s-row"><div class="s-row-info"><div class="s-row-title">Night Light <span class="guardian-badge off">untracked</span></div><div class="s-row-desc">Reduce blue light</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div><div class="s-row"><div class="s-row-info"><div class="s-row-title">Resolution <span class="guardian-badge">&#128737; Protected</span></div></div><select class="dropdown"><option>2560x1440</option><option>1920x1080</option></select></div></div><div class="s-section"><div class="s-section-title">Dock</div><div class="s-row"><div class="s-row-info"><div class="s-row-title">Auto-hide</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div><div class="s-row"><div class="s-row-info"><div class="s-row-title">Auto-hide Delay</div></div><div class="slider-wrap"><input type="range" class="slider" min="0" max="1000" step="100" value="200" oninput="this.nextElementSibling.textContent=this.value+'ms'"><span class="slider-val">200ms</span></div></div></div></div></div>`,{width:780,height:500,context:{window:'Settings (Display)'}});}
+
+function launchGuardian(){createWindow('guardian','Config Guardian','&#128737;',`<div style="display:flex;height:100%;width:100%;"><div style="width:170px;background:#171717;border-right:1px solid #2a2a2a;padding:8px 0;flex-shrink:0;"><div class="ss-item active"><span>&#128737;</span> Overview</div><div class="ss-item"><span>&#9000;</span> Keyboard <span style="margin-left:auto;font-size:9px;padding:2px 6px;border-radius:8px;background:#10a37f22;color:#10a37f;">OK</span></div><div class="ss-item"><span>&#128424;</span> Display <span style="margin-left:auto;font-size:9px;padding:2px 6px;border-radius:8px;background:#f7768e22;color:#f7768e;">drift</span></div><div class="ss-item"><span>&#127925;</span> Audio <span style="margin-left:auto;font-size:9px;padding:2px 6px;border-radius:8px;background:#10a37f22;color:#10a37f;">OK</span></div><div class="ss-item"><span>&#128433;</span> Input <span style="margin-left:auto;font-size:9px;padding:2px 6px;border-radius:8px;background:#f7768e22;color:#f7768e;">drift</span></div></div><div style="flex:1;padding:16px 20px;overflow-y:auto;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><div><div style="font-size:15px;font-weight:500;">Config Status</div><div style="font-size:11px;color:#666;">12 tracked &bull; 2 drifted &bull; 10 protected</div></div><button class="action-btn outline" style="font-size:11px;">+ Watch setting</button></div><div class="g-card drifted"><div class="g-card-header"><span class="g-card-title">Display Scaling</span><span class="g-status drift">Drifted</span></div><div class="g-card-body">150% -> 100% by GNOME 46.1.</div><div class="g-diff"><div class="del">- scaling-factor: 2</div><div class="add">+ scaling-factor: 1</div><div class="meta">  src: gnome-shell 46.1 postinst</div></div><div class="depth-card" style="margin-top:8px;"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L4</span> Journal <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>14:32:07 gnome-shell: scaling-factor -> 1
+14:32:08 guardian: DRIFT 2->1, RESTORED -> 2</pre></div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L5</span> Hyphae history <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>Apr 06  Drifted by 46.1 -> Restored
+Mar 28  Set to 150% by user
+Mar 01  Initial: 100%</pre><span class="drill-link" onclick="launchApp('terminal')">guardian --history scaling-factor</span></div></div><div class="g-actions"><button class="action-btn" onclick="this.closest('.g-card').className='g-card protected';this.closest('.g-card').querySelector('.g-status').className='g-status ok';this.closest('.g-card').querySelector('.g-status').textContent='Restored';this.closest('.g-actions').innerHTML='<span style=color:#10a37f;font-size:12px>Restored and locked.</span>'">Restore</button><button class="action-btn outline">Accept</button><button class="action-btn outline">Always protect</button></div></div><div class="g-card drifted"><div class="g-card-header"><span class="g-card-title">Wacom Pressure Curve</span><span class="g-status drift">Reset</span></div><div class="g-card-body">Reset to default on reboot. 3rd time.</div><div class="g-actions"><button class="action-btn" onclick="this.closest('.g-card').className='g-card protected';this.closest('.g-card').querySelector('.g-status').className='g-status ok';this.closest('.g-card').querySelector('.g-status').textContent='Locked';this.closest('.g-actions').innerHTML='<span style=color:#10a37f;font-size:12px>Locked.</span>'">Restore & lock</button></div></div><div class="g-card protected"><div class="g-card-header"><span class="g-card-title">Keyboard (US-Intl)</span><span class="g-status ok">Protected</span></div><div class="g-card-body">XKB locked. Verified 2h ago.</div></div><div class="g-card protected"><div class="g-card-header"><span class="g-card-title">Browser: Firefox</span><span class="g-status ok">Protected</span></div><div class="g-card-body">MIME locked.</div></div><div class="g-card protected"><div class="g-card-header"><span class="g-card-title">PipeWire 48kHz</span><span class="g-status ok">Protected</span></div><div class="g-card-body">No drift.</div></div></div></div>`,{width:760,height:520,context:{window:'Config Guardian'}});}
+
+function launchAppManager(){createWindow('apps','App Manager','&#128230;',`<div style="display:flex;height:100%;width:100%;"><div style="width:150px;background:#171717;border-right:1px solid #2a2a2a;padding:8px 0;flex-shrink:0;"><div class="ss-item active"><span>&#128230;</span> All</div><div class="ss-item"><span>&#11088;</span> Recent</div><div class="ss-item" style="color:#e0af68"><span>&#9888;</span> Residue</div><div class="ss-item"><span>&#128190;</span> Large</div></div><div style="flex:1;padding:16px 20px;overflow-y:auto;"><div style="font-size:11px;color:#666;margin-bottom:8px;">14 apps &bull; 52.8 GB &bull; 3 with residue</div><div class="app-row" onclick="showUn(this,'steam')"><span class="ar-icon">&#127918;</span><div class="ar-info"><div class="ar-name">Steam</div><div class="ar-meta">Valve &bull; Jan 2026</div></div><span class="ar-residue">+340 MB</span><span class="ar-size">50.6 GB</span></div><div class="app-row" onclick="showUn(this,'ff')"><span class="ar-icon">&#127760;</span><div class="ar-info"><div class="ar-name">Firefox</div><div class="ar-meta">System</div></div><span class="ar-residue"></span><span class="ar-size">240 MB</span></div><div class="app-row" onclick="showUn(this,'spot')"><span class="ar-icon">&#127911;</span><div class="ar-info"><div class="ar-name">Spotify</div><div class="ar-meta">Snap</div></div><span class="ar-residue">+1.2 GB</span><span class="ar-size">180 MB</span></div><div class="app-row" onclick="showUn(this,'vsc')"><span class="ar-icon">&#128187;</span><div class="ar-info"><div class="ar-name">VS Code</div><div class="ar-meta">.deb</div></div><span class="ar-residue"></span><span class="ar-size">340 MB</span></div><div class="app-row" onclick="showUn(this,'gimp')"><span class="ar-icon">&#127912;</span><div class="ar-info"><div class="ar-name">GIMP</div><div class="ar-meta">Flatpak</div></div><span class="ar-residue">+24 MB</span><span class="ar-size">312 MB</span></div><div class="up-panel" id="up-panel"><div style="font-size:14px;font-weight:500;margin-bottom:10px;">&#128465; <span id="up-name"></span></div><div id="up-det"></div><div class="up-files" id="up-files"></div><div class="g-actions" id="up-act"></div></div></div></div>`,{width:820,height:540,context:{window:'App Manager'}});}
+const uD={steam:{d:`<div class="up-row"><span class="up-label">App</span><span class="up-val">2.4 GB</span></div><div class="up-row"><span class="up-label">Games</span><span class="up-val warn">48.2 GB</span></div><div class="up-row"><span class="up-label">Config</span><span class="up-val">12 MB</span></div><div class="up-row"><span class="up-label">Cache</span><span class="up-val">328 MB</span></div>`,f:`<div><span class="dir">~/.steam/</span></div><div><span class="dir">~/.local/share/Steam/</span><span class="sz">48 GB</span></div><div><span class="dir">~/.config/unity3d/</span><span class="sz">saves</span></div>`,a:`<button class="action-btn">Remove (keep games)</button><button class="action-btn" style="background:#f7768e">Remove all (50.9 GB)</button>`},spot:{d:`<div class="up-row"><span class="up-label">Snap</span><span class="up-val">180 MB</span></div><div class="up-row"><span class="up-label">Cache</span><span class="up-val warn">1.2 GB</span></div>`,f:`<div><span class="dir">~/snap/spotify/</span></div>`,a:`<button class="action-btn" style="background:#f7768e">Remove all (1.4 GB)</button>`},gimp:{d:`<div class="up-row"><span class="up-label">Flatpak</span><span class="up-val">312 MB</span></div><div class="up-row"><span class="up-label">Plugins</span><span class="up-val">18 MB</span></div>`,f:`<div><span class="dir">~/.config/GIMP/</span></div>`,a:`<button class="action-btn" style="background:#f7768e">Remove all (336 MB)</button>`}};
+function showUn(r,id){document.querySelectorAll('.app-row').forEach(x=>x.classList.remove('selected'));r.classList.add('selected');const p=document.getElementById('up-panel'),d=uD[id];if(d){document.getElementById('up-name').textContent=r.querySelector('.ar-name').textContent;document.getElementById('up-det').innerHTML=d.d;document.getElementById('up-files').innerHTML=d.f;document.getElementById('up-act').innerHTML=d.a;p.classList.add('visible');}else p.classList.remove('visible');}
+
+function launchBrowser(){createWindow('browser','Browser','&#127760;',`<div style="padding:12px;background:#171717;border-bottom:1px solid #2a2a2a;display:flex;gap:8px;align-items:center;"><span style="color:#666;">&#9664;</span><span style="color:#666;">&#9654;</span><span style="color:#666;">&#8635;</span><div class="browser-url" style="flex:1;background:#2a2a2a;border-radius:20px;padding:8px 16px;font-size:13px;color:#999;">llmos://newtab</div></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:calc(100% - 52px);width:100%;color:#666;"><div style="font-size:48px;">&#127760;</div><div style="margin-top:12px;">New Tab</div></div>`,{width:900,height:560,context:{window:'Browser'}});}
+function launchFiles(){createWindow('files','Files','&#128193;',`<div style="display:flex;height:100%;width:100%;"><div style="width:160px;background:#171717;border-right:1px solid #2a2a2a;padding:12px 0;flex-shrink:0;"><div class="ss-item active"><span>&#127968;</span> Home</div><div class="ss-item"><span>&#128196;</span> Documents</div><div class="ss-item"><span>&#128190;</span> Downloads</div></div><div style="flex:1;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;align-content:start;"><div style="text-align:center;padding:12px;border-radius:8px;cursor:pointer;" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''"><div style="font-size:28px;">&#128193;</div><div style="font-size:11px;color:#999;">Documents</div></div><div style="text-align:center;padding:12px;border-radius:8px;cursor:pointer;" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''"><div style="font-size:28px;">&#128247;</div><div style="font-size:11px;color:#999;">Pictures</div></div><div style="text-align:center;padding:12px;border-radius:8px;cursor:pointer;" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''"><div style="font-size:28px;">&#128190;</div><div style="font-size:11px;color:#999;">Downloads</div></div><div style="text-align:center;padding:12px;border-radius:8px;cursor:pointer;" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''"><div style="font-size:28px;">&#128193;</div><div style="font-size:11px;color:#999;">Projects</div></div></div></div>`,{width:700,height:450,context:{window:'Files (/home/ben)'}});}
+function launchTerminal(){createWindow('terminal','Terminal','&#9002;',`<div style="background:#0a0a0a;height:100%;padding:12px;font-family:monospace;font-size:13px;color:#10a37f;width:100%;"><div>LLMOS Terminal v1.0</div><div style="color:#666;">Type commands or natural language. 'help' for info.</div><div style="color:#999;margin-top:4px;font-size:11px;">Tip: plain English -> translated to bash</div><div style="margin-top:12px;"><span style="color:#7c3aed;">ben@llmos</span>:<span style="color:#10a37f;">~</span>$ <span style="animation:blink 1s infinite;">_</span></div></div><style>@keyframes blink{50%{opacity:0}}</style>`,{width:680,height:420,context:{window:'Terminal'}});}
+function launchMonitor(){createWindow('monitor','System Monitor','&#128200;',`<div style="padding:20px;width:100%;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;"><div style="background:#2a2a2a;border-radius:8px;padding:14px;"><div style="font-size:11px;color:#666;text-transform:uppercase;">CPU</div><div style="font-size:24px;font-weight:600;color:#10a37f;">23%</div><div style="height:4px;background:#333;border-radius:2px;margin-top:8px;"><div style="width:23%;height:100%;background:#10a37f;border-radius:2px;"></div></div></div><div style="background:#2a2a2a;border-radius:8px;padding:14px;"><div style="font-size:11px;color:#666;text-transform:uppercase;">Memory</div><div style="font-size:24px;font-weight:600;color:#7c3aed;">8.2/32 GB</div><div style="height:4px;background:#333;border-radius:2px;margin-top:8px;"><div style="width:26%;height:100%;background:#7c3aed;border-radius:2px;"></div></div></div><div style="background:#2a2a2a;border-radius:8px;padding:14px;"><div style="font-size:11px;color:#666;text-transform:uppercase;">GPU</div><div style="font-size:24px;font-weight:600;color:#e0af68;">45%</div><div style="height:4px;background:#333;border-radius:2px;margin-top:8px;"><div style="width:45%;height:100%;background:#e0af68;border-radius:2px;"></div></div></div><div style="background:#2a2a2a;border-radius:8px;padding:14px;"><div style="font-size:11px;color:#666;text-transform:uppercase;">Temp</div><div style="font-size:24px;font-weight:600;color:#f7768e;">72C</div><div style="height:4px;background:#333;border-radius:2px;margin-top:8px;"><div style="width:72%;height:100%;background:#f7768e;border-radius:2px;"></div></div></div></div><div style="font-family:monospace;font-size:11px;color:#999;line-height:1.8;"><div style="display:flex;justify-content:space-between;"><span>firefox (47 tabs)</span><span>4.2% 1.8 GB</span></div><div style="display:flex;justify-content:space-between;"><span>ollama serve</span><span>2.1% 3.2 GB</span></div><div style="display:flex;justify-content:space-between;"><span>code</span><span>1.8% 890 MB</span></div></div><div style="margin-top:16px;padding:10px 14px;background:#2a2a2a;border-radius:8px;font-size:12px;color:#e0af68;">&#9888; Disk: 234/256 GB (91%) — full in ~5 days</div></div>`,{width:560,height:480,context:{window:'System Monitor'}});}
+
+function toggleStartMenu(){document.getElementById('start-menu').classList.toggle('open');closeNotifCenter();}
+function closeStartMenu(){document.getElementById('start-menu').classList.remove('open');}
+function toggleNotifCenter(){document.getElementById('notif-center').classList.toggle('open');closeStartMenu();}
+function closeNotifCenter(){document.getElementById('notif-center').classList.remove('open');}
+function toggleNCDepth(item){item.querySelector('.nc-item-depth')?.classList.toggle('expanded');}
+function toggleDD(level){level.nextElementSibling?.classList.toggle('show');}
+function clearNotifs(){document.getElementById('nc-list').innerHTML='<div style="padding:40px;text-align:center;color:#555;">All caught up</div>';document.getElementById('notif-count').style.display='none';}
+
+function openSpotlight(){document.getElementById('spotlight').classList.add('open');setTimeout(()=>document.getElementById('spot-input').focus(),50);}
+function closeSpotlight(){document.getElementById('spotlight').classList.remove('open');document.getElementById('spot-input').value='';}
+const spotDB=[{t:'Display Scaling',d:'Display > Scaling',i:'&#128424;',k:['text bigger','scale','dpi','font size','make bigger','too small']},{t:'Auto-hide Delay',d:'Dock delay',i:'&#9881;',k:['dock','pop up','too fast','delay']},{t:'Night Light',d:'Reduce blue light',i:'&#127769;',k:['blue light','night','eye strain']},{t:'Default Browser',d:'Default Apps',i:'&#127760;',k:['browser','default','firefox']},{t:'Notifications',d:'App notifications',i:'&#128276;',k:['notifications','mute','quiet']},{t:'Keyboard Layout',d:'Keyboard',i:'&#9000;',k:['keyboard','layout','remap']},{t:'Dark Mode',d:'Theme',i:'&#127761;',k:['dark','light','theme']},{t:'Terminal',d:'Open Terminal',i:'&#9002;',k:['terminal','shell','bash'],a:'terminal'},{t:'System Monitor',d:'Open Monitor',i:'&#128200;',k:['monitor','cpu','ram','performance'],a:'monitor'},{t:'Files',d:'File Manager',i:'&#128193;',k:['files','folders'],a:'files'}];
+function onSpotSearch(q){const b=document.getElementById('spot-results');if(!q||q.length<2){b.innerHTML='<div class="spot-item"><span class="spot-item-icon">&#128161;</span><div class="spot-item-info"><div class="spot-item-desc" style="color:#555;">Search settings, apps, or ask a question</div></div></div>';return;}q=q.toLowerCase();const m=spotDB.filter(s=>s.t.toLowerCase().includes(q)||s.k.some(k=>k.includes(q))||q.split(' ').every(w=>s.k.some(k=>k.includes(w))||s.t.toLowerCase().includes(w))).slice(0,6);b.innerHTML=m.map((s,i)=>`<div class="spot-item ${i===0?'focused':''}" onclick="closeSpotlight();launchApp('${s.a||'settings'}')"><span class="spot-item-icon">${s.i}</span><div class="spot-item-info"><div class="spot-item-title">${s.t}</div><div class="spot-item-desc">${s.d}</div></div><span style="color:#10a37f;">&#8594;</span></div>`).join('')||'<div class="spot-item"><div class="spot-item-info"><div class="spot-item-desc">No match. Enter to ask LLMOS.</div></div></div>';}
+
+function showToast(){document.getElementById('toast').classList.add('show');setTimeout(hideToast,8000);}
+function hideToast(){document.getElementById('toast').classList.remove('show');}
+
+document.addEventListener('keydown',e=>{if(e.key===' '&&e.ctrlKey){e.preventDefault();document.getElementById('spotlight').classList.contains('open')?closeSpotlight():openSpotlight();}if(e.key==='j'&&e.ctrlKey){e.preventDefault();startChat('');}if(e.key==='Escape'){closeSpotlight();closeStartMenu();closeNotifCenter();hideInline();document.getElementById('token-widget')?.classList.remove('open');}if(e.key==='Enter'&&document.getElementById('spotlight').classList.contains('open')){const v=document.getElementById('spot-input').value;if(v){closeSpotlight();handleInput(v);}}});
+document.addEventListener('click',e=>{if(!e.target.closest('.start-menu')&&!e.target.closest('.tb-start'))closeStartMenu();if(!e.target.closest('.notif-center')&&!e.target.closest('.tb-systray'))closeNotifCenter();});
+
+setTimeout(showToast,3000);
+
+// ==========================
+// Token Monitor Widget
+// ==========================
+const tokenState = {
+  lifetime_saved: 2289478,
+  lifetime_total: 6012345,
+  session_saved: 0,
+  session_total: 0,
+  cache_hits: 847,
+  local_routes: 1204,
+  compressions: 312,
+  sessions: 279,
+  cost_saved: 4.12,
+  // Rolling history for the bar chart (last 20 data points)
+  history: [],
+};
+
+function initTokenMonitor() {
+  // Build taskbar mini bars (8 bars showing recent history)
+  const container = document.getElementById('tm-bars');
+  if (!container) return;
+  container.innerHTML = '';
+  for (let i = 0; i < 8; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'tm-bar saved';
+    bar.style.height = (6 + Math.random() * 18) + 'px';
+    container.appendChild(bar);
+  }
+  // Build expanded widget bars (20 bars)
+  const bigContainer = document.getElementById('tw-bars-big');
+  if (!bigContainer) return;
+  bigContainer.innerHTML = '';
+  for (let i = 0; i < 20; i++) {
+    const saved = 5 + Math.random() * 35;
+    const used = 5 + Math.random() * 20;
+    const cached = Math.random() > 0.6 ? 2 + Math.random() * 10 : 0;
+
+    // Stack: saved on bottom, used, cached on top
+    const col = document.createElement('div');
+    col.style.cssText = 'flex:1;display:flex;flex-direction:column-reverse;gap:1px;height:100%;';
+
+    const bSaved = document.createElement('div');
+    bSaved.className = 'tw-bar-big';
+    bSaved.style.cssText = `height:${saved}%;background:#10a37f;border-radius:2px;`;
+    col.appendChild(bSaved);
+
+    const bUsed = document.createElement('div');
+    bUsed.className = 'tw-bar-big';
+    bUsed.style.cssText = `height:${used}%;background:#e0af68;border-radius:2px;`;
+    col.appendChild(bUsed);
+
+    if (cached > 0) {
+      const bCached = document.createElement('div');
+      bCached.className = 'tw-bar-big';
+      bCached.style.cssText = `height:${cached}%;background:#7c3aed;border-radius:2px;`;
+      col.appendChild(bCached);
+    }
+
+    bigContainer.appendChild(col);
+    tokenState.history.push({ saved, used, cached });
+  }
+  updateTokenDisplay();
+}
+
+function updateTokenDisplay() {
+  const pct = (tokenState.lifetime_saved / Math.max(tokenState.lifetime_total, 1) * 100);
+  const pctEl = document.getElementById('tm-pct');
+  if (pctEl) pctEl.textContent = pct.toFixed(0) + '%';
+
+  const twPct = document.getElementById('tw-saved-pct');
+  if (twPct) twPct.textContent = pct.toFixed(1) + '%';
+
+  const twCount = document.getElementById('tw-saved-count');
+  if (twCount) twCount.textContent = tokenState.lifetime_saved.toLocaleString() + ' tokens saved';
+
+  const twCost = document.getElementById('tw-cost-saved');
+  if (twCost) twCost.textContent = '$' + tokenState.cost_saved.toFixed(2);
+
+  const twCache = document.getElementById('tw-cache-hits');
+  if (twCache) twCache.textContent = tokenState.cache_hits.toLocaleString();
+
+  const twLocal = document.getElementById('tw-local-routes');
+  if (twLocal) twLocal.textContent = tokenState.local_routes.toLocaleString();
+
+  const twComp = document.getElementById('tw-compressions');
+  if (twComp) twComp.textContent = tokenState.compressions.toLocaleString();
+
+  const twSess = document.getElementById('tw-sessions');
+  if (twSess) twSess.textContent = tokenState.sessions.toLocaleString();
+}
+
+function tokenSaveEvent(saved, reason) {
+  // Animate a save event
+  tokenState.lifetime_saved += saved;
+  tokenState.lifetime_total += saved + Math.floor(saved * 0.3); // total grows too
+  tokenState.session_saved += saved;
+  tokenState.cost_saved += saved * 0.0000018; // rough claude pricing
+
+  if (reason === 'cache') tokenState.cache_hits++;
+  else if (reason === 'local') tokenState.local_routes++;
+  else if (reason === 'compress') tokenState.compressions++;
+
+  // Pulse the taskbar widget
+  const monitor = document.getElementById('token-monitor');
+  if (monitor) {
+    monitor.classList.add('saving');
+    setTimeout(() => monitor.classList.remove('saving'), 700);
+  }
+
+  // Shift taskbar bars left and add new one
+  const bars = document.querySelectorAll('#tm-bars .tm-bar');
+  if (bars.length > 0) {
+    bars[0].remove();
+    const newBar = document.createElement('div');
+    const h = Math.min(24, 8 + (saved / 500) * 16);
+    newBar.className = 'tm-bar saved';
+    newBar.style.height = h + 'px';
+    // Color by reason
+    if (reason === 'cache') newBar.style.background = '#7c3aed';
+    else if (reason === 'local') newBar.style.background = '#10a37f';
+    else newBar.style.background = '#e0af68';
+    newBar.style.transition = 'height 0.3s ease';
+    document.getElementById('tm-bars').appendChild(newBar);
+  }
+
+  updateTokenDisplay();
+}
+
+function toggleTokenWidget() {
+  const widget = document.getElementById('token-widget');
+  if (widget) widget.classList.toggle('open');
+}
+
+// Simulate token saves (replace with real WebSocket data)
+setInterval(() => {
+  const reasons = ['cache', 'local', 'compress', 'local', 'local', 'cache'];
+  const reason = reasons[Math.floor(Math.random() * reasons.length)];
+  const saved = reason === 'cache' ? 500 + Math.floor(Math.random() * 2000)
+    : reason === 'local' ? 200 + Math.floor(Math.random() * 800)
+    : 1000 + Math.floor(Math.random() * 3000);
+  tokenSaveEvent(saved, reason);
+}, 8000);
+
+initTokenMonitor();
+
+// Bootstrap backend connection
+detectBackend();
+// Retry connection every 30s if offline
+setInterval(() => { if (connState.mode === 'offline') detectBackend(); }, 30000);
+</script>
+</body>
+</html>

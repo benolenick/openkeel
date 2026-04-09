@@ -1,0 +1,167 @@
+# NCMS Narrative Hypothesis Loop Cycle 93
+
+- Timestamp: `2026-04-03T07:19:50`
+- Narrative-first search over tracked topics in `narrative_velocity`.
+- Search bias: META=94.08, GOOGL=6.42, COST=1.00, NVDA=1.00, INTC=1.00, AMZN=1.00
+
+## Top Suspicious Pushes
+
+### META vs QQQ
+- Suspicion: `3.07`
+- Alpha: `-9.18%` over `7` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `0.04`
+- Mainstream share: `1.00`
+- Params: `groups>=2 mentions>=1 suspicion>=2.8`
+### META vs QQQ
+- Suspicion: `3.02`
+- Alpha: `-7.17%` over `7` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `-0.09`
+- Mainstream share: `0.00`
+- Params: `groups>=2 mentions>=1 suspicion>=2.8`
+### META vs QQQ
+- Suspicion: `4.37`
+- Alpha: `-5.30%` over `7` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `-0.34`
+- Mainstream share: `1.00`
+- Params: `groups>=2 mentions>=1 suspicion>=3.2`
+### META vs QQQ
+- Suspicion: `3.77`
+- Alpha: `-5.13%` over `7` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `-0.26`
+- Mainstream share: `0.50`
+- Params: `groups>=2 mentions>=1 suspicion>=3.2`
+### META vs QQQ
+- Suspicion: `9.97`
+- Alpha: `-4.81%` over `3` days
+- Mentions/groups: `6` / `6`
+- Novelty z: `4.28`
+- Mainstream share: `0.33`
+- Params: `groups>=4 mentions>=3 suspicion>=2.8`
+### GOOGL vs QQQ
+- Suspicion: `3.39`
+- Alpha: `-4.76%` over `7` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `0.42`
+- Mainstream share: `0.50`
+- Params: `groups>=2 mentions>=2 suspicion>=3.2`
+### META vs QQQ
+- Suspicion: `3.77`
+- Alpha: `-3.88%` over `5` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `-0.26`
+- Mainstream share: `0.50`
+- Params: `groups>=2 mentions>=2 suspicion>=3.6`
+### GOOGL vs QQQ
+- Suspicion: `3.39`
+- Alpha: `-3.38%` over `5` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `0.42`
+- Mainstream share: `0.50`
+- Params: `groups>=2 mentions>=2 suspicion>=3.2`
+### META vs QQQ
+- Suspicion: `3.77`
+- Alpha: `-2.98%` over `3` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `-0.26`
+- Mainstream share: `0.50`
+- Params: `groups>=2 mentions>=2 suspicion>=3.6`
+### META vs QQQ
+- Suspicion: `9.97`
+- Alpha: `-2.95%` over `7` days
+- Mentions/groups: `6` / `6`
+- Novelty z: `4.28`
+- Mainstream share: `0.33`
+- Params: `groups>=4 mentions>=3 suspicion>=4.0`
+### META vs QQQ
+- Suspicion: `4.37`
+- Alpha: `-2.56%` over `3` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `-0.34`
+- Mainstream share: `1.00`
+- Params: `groups>=2 mentions>=2 suspicion>=3.6`
+### META vs QQQ
+- Suspicion: `9.97`
+- Alpha: `-2.04%` over `5` days
+- Mentions/groups: `6` / `6`
+- Novelty z: `4.28`
+- Mainstream share: `0.33`
+- Params: `groups>=4 mentions>=2 suspicion>=4.0`
+
+## Top Bullish Narrative Pushes
+
+### META vs QQQ
+- Suspicion: `2.95`
+- Alpha: `6.32%` over `3` days
+- Mentions/groups: `3` / `3`
+- Novelty z: `0.64`
+- Mainstream share: `0.33`
+### META vs QQQ
+- Suspicion: `2.95`
+- Alpha: `5.29%` over `5` days
+- Mentions/groups: `3` / `3`
+- Novelty z: `0.64`
+- Mainstream share: `0.33`
+### META vs QQQ
+- Suspicion: `2.95`
+- Alpha: `5.29%` over `7` days
+- Mentions/groups: `3` / `3`
+- Novelty z: `0.64`
+- Mainstream share: `0.33`
+### META vs QQQ
+- Suspicion: `5.90`
+- Alpha: `3.90%` over `3` days
+- Mentions/groups: `4` / `4`
+- Novelty z: `1.51`
+- Mainstream share: `1.00`
+### META vs QQQ
+- Suspicion: `5.75`
+- Alpha: `3.50%` over `5` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `-0.43`
+- Mainstream share: `0.50`
+### GOOGL vs QQQ
+- Suspicion: `5.33`
+- Alpha: `3.34%` over `5` days
+- Mentions/groups: `3` / `3`
+- Novelty z: `1.59`
+- Mainstream share: `1.00`
+### GOOGL vs QQQ
+- Suspicion: `5.33`
+- Alpha: `3.34%` over `7` days
+- Mentions/groups: `3` / `3`
+- Novelty z: `1.59`
+- Mainstream share: `1.00`
+### META vs QQQ
+- Suspicion: `5.75`
+- Alpha: `3.16%` over `7` days
+- Mentions/groups: `2` / `2`
+- Novelty z: `-0.43`
+- Mainstream share: `0.50`
+### META vs QQQ
+- Suspicion: `5.90`
+- Alpha: `2.97%` over `5` days
+- Mentions/groups: `4` / `4`
+- Novelty z: `1.51`
+- Mainstream share: `1.00`
+### META vs QQQ
+- Suspicion: `5.90`
+- Alpha: `2.97%` over `7` days
+- Mentions/groups: `4` / `4`
+- Novelty z: `1.51`
+- Mainstream share: `1.00`
+### GOOGL vs QQQ
+- Suspicion: `4.53`
+- Alpha: `2.82%` over `5` days
+- Mentions/groups: `3` / `3`
+- Novelty z: `1.21`
+- Mainstream share: `0.33`
+### GOOGL vs QQQ
+- Suspicion: `9.56`
+- Alpha: `2.53%` over `7` days
+- Mentions/groups: `4` / `4`
+- Novelty z: `2.50`
+- Mainstream share: `0.75`

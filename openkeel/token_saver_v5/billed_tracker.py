@@ -108,7 +108,29 @@ def parse_transcript(path: str) -> Iterator[dict[str, Any]]:
     Each dict contains:
         turn_uuid, session_id, timestamp, input_tokens, cache_creation,
         cache_read, output_tokens, total_billed, model, transcript_path
+
+    NOTE: model is corrected from proxy_trace.jsonl if Opus was routed down.
     """
+    # Load proxy routing for Opus→Sonnet/Haiku corrections
+    proxy_models = {}
+    try:
+        from pathlib import Path
+        proxy_file = Path.home() / ".openkeel" / "proxy_trace.jsonl"
+        if proxy_file.exists():
+            with open(proxy_file) as f:
+                for line in f:
+                    try:
+                        d = json.loads(line)
+                        ts = d.get("ts", 0)
+                        req = d.get("req", {}) or {}
+                        routed = req.get("routed_model")
+                        if routed and ts:
+                            proxy_models[int(ts)] = routed
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
     try:
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -131,6 +153,9 @@ def parse_transcript(path: str) -> Iterator[dict[str, Any]]:
                 ts_iso = row.get("timestamp") or ""
                 ts = _iso_to_epoch(ts_iso) if ts_iso else 0.0
                 model = msg.get("model") or ""
+                # Correct Opus if proxy routed it down
+                if "opus" in model.lower() and int(ts) in proxy_models:
+                    model = proxy_models[int(ts)]
                 inp = int(usage.get("input_tokens") or 0)
                 cc = int(usage.get("cache_creation_input_tokens") or 0)
                 cr = int(usage.get("cache_read_input_tokens") or 0)

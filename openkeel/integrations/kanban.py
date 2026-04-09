@@ -489,6 +489,157 @@ class Kanban:
         }
 
     # ------------------------------------------------------------------
+    # Roadmaps
+    # ------------------------------------------------------------------
+
+    def create_roadmap(self, project: str, title: str, description: str = "") -> int:
+        """Create a new project roadmap."""
+        now = time.time()
+        cur = self._conn.execute(
+            "INSERT INTO roadmaps (project, title, description, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'active', ?, ?)",
+            (project, title, description, now, now),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def get_roadmap(self, roadmap_id: int) -> dict[str, Any] | None:
+        row = self._conn.execute("SELECT * FROM roadmaps WHERE id = ?", (roadmap_id,)).fetchone()
+        return dict(row) if row else None
+
+    def list_roadmaps(self, project: str = "") -> list[dict[str, Any]]:
+        if project:
+            rows = self._conn.execute(
+                "SELECT * FROM roadmaps WHERE project = ? ORDER BY created_at DESC", (project,)
+            ).fetchall()
+        else:
+            rows = self._conn.execute("SELECT * FROM roadmaps ORDER BY created_at DESC").fetchall()
+        return [dict(r) for r in rows]
+
+    def update_roadmap(self, roadmap_id: int, **kwargs) -> bool:
+        allowed = {"title", "description", "status"}
+        updates = {k: v for k, v in kwargs.items() if k in allowed}
+        if not updates:
+            return False
+        updates["updated_at"] = time.time()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        self._conn.execute(
+            f"UPDATE roadmaps SET {set_clause} WHERE id = ?",
+            list(updates.values()) + [roadmap_id],
+        )
+        self._conn.commit()
+        return True
+
+    def delete_roadmap(self, roadmap_id: int) -> bool:
+        # Delete linked milestone_tasks first, then milestones, then roadmap
+        milestone_ids = [r["id"] for r in self._conn.execute(
+            "SELECT id FROM milestones WHERE roadmap_id = ?", (roadmap_id,)
+        ).fetchall()]
+        for mid in milestone_ids:
+            self._conn.execute("DELETE FROM milestone_tasks WHERE milestone_id = ?", (mid,))
+        self._conn.execute("DELETE FROM milestones WHERE roadmap_id = ?", (roadmap_id,))
+        self._conn.execute("DELETE FROM roadmaps WHERE id = ?", (roadmap_id,))
+        self._conn.commit()
+        return True
+
+    def add_milestone(self, roadmap_id: int, title: str, description: str = "",
+                      target_date: float | None = None, sort_order: int = 0) -> int:
+        now = time.time()
+        cur = self._conn.execute(
+            "INSERT INTO milestones (roadmap_id, title, description, status, target_date, "
+            "sort_order, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?)",
+            (roadmap_id, title, description, target_date, sort_order, now, now),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def get_milestone(self, milestone_id: int) -> dict[str, Any] | None:
+        row = self._conn.execute("SELECT * FROM milestones WHERE id = ?", (milestone_id,)).fetchone()
+        return dict(row) if row else None
+
+    def update_milestone(self, milestone_id: int, **kwargs) -> bool:
+        allowed = {"title", "description", "status", "target_date", "sort_order"}
+        updates = {k: v for k, v in kwargs.items() if k in allowed}
+        if not updates:
+            return False
+        updates["updated_at"] = time.time()
+        if updates.get("status") == "completed":
+            updates["completed_at"] = time.time()
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        self._conn.execute(
+            f"UPDATE milestones SET {set_clause} WHERE id = ?",
+            list(updates.values()) + [milestone_id],
+        )
+        self._conn.commit()
+        return True
+
+    def delete_milestone(self, milestone_id: int) -> bool:
+        self._conn.execute("DELETE FROM milestone_tasks WHERE milestone_id = ?", (milestone_id,))
+        self._conn.execute("DELETE FROM milestones WHERE id = ?", (milestone_id,))
+        self._conn.commit()
+        return True
+
+    def link_task_to_milestone(self, milestone_id: int, task_id: int) -> bool:
+        try:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO milestone_tasks (milestone_id, task_id) VALUES (?, ?)",
+                (milestone_id, task_id),
+            )
+            self._conn.commit()
+            return True
+        except Exception:
+            return False
+
+    def unlink_task_from_milestone(self, milestone_id: int, task_id: int) -> bool:
+        self._conn.execute(
+            "DELETE FROM milestone_tasks WHERE milestone_id = ? AND task_id = ?",
+            (milestone_id, task_id),
+        )
+        self._conn.commit()
+        return True
+
+    def roadmap_view(self, roadmap_id: int) -> dict[str, Any]:
+        """Full roadmap view: roadmap + milestones + linked tasks with progress."""
+        roadmap = self.get_roadmap(roadmap_id)
+        if not roadmap:
+            return {"error": "Roadmap not found"}
+
+        milestones = self._conn.execute(
+            "SELECT * FROM milestones WHERE roadmap_id = ? ORDER BY sort_order, target_date",
+            (roadmap_id,),
+        ).fetchall()
+
+        result_milestones = []
+        total_tasks = 0
+        total_done = 0
+
+        for ms in milestones:
+            ms_dict = dict(ms)
+            # Get linked tasks
+            task_rows = self._conn.execute(
+                "SELECT t.* FROM tasks t "
+                "JOIN milestone_tasks mt ON mt.task_id = t.id "
+                "WHERE mt.milestone_id = ? ORDER BY t.sort_order",
+                (ms["id"],),
+            ).fetchall()
+            tasks = [dict(t) for t in task_rows]
+            done = sum(1 for t in tasks if t["status"] == "done")
+            total_tasks += len(tasks)
+            total_done += done
+
+            ms_dict["tasks"] = tasks
+            ms_dict["task_count"] = len(tasks)
+            ms_dict["done_count"] = done
+            ms_dict["progress"] = round(done / len(tasks) * 100) if tasks else 0
+            result_milestones.append(ms_dict)
+
+        roadmap["milestones"] = result_milestones
+        roadmap["total_tasks"] = total_tasks
+        roadmap["total_done"] = total_done
+        roadmap["progress"] = round(total_done / total_tasks * 100) if total_tasks else 0
+        return roadmap
+
+    # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 

@@ -1,0 +1,23 @@
+{
+  "name": "openclaw-llmos",
+  "version": "0.1.0",
+  "description": "Native LLMOS integration for OpenClaw — exposes Hyphae memory, kanban, and Cartographer as first-class tools and enriches incoming messages with project context.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": ["openclaw", "plugin", "llmos", "openkeel", "hyphae", "memory"],
+  "author": "OpenKeel / LLMOS",
+  "license": "MIT",
+  "openclaw": {
+    "pluginApi": "1.x",
+    "minGatewayVersion": "0.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}

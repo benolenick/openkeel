@@ -258,6 +258,39 @@ CREATE TABLE IF NOT EXISTS directives (
     picked_up_by TEXT   DEFAULT '',
     picked_up_at REAL   DEFAULT NULL
 );
+
+-- -----------------------------------------------------------------------
+-- Project Roadmaps: milestones with target dates and linked tasks
+-- -----------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS roadmaps (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    project     TEXT    NOT NULL,
+    title       TEXT    NOT NULL,                    -- roadmap name (e.g. "LLMOS v1.0")
+    description TEXT    DEFAULT '',
+    status      TEXT    DEFAULT 'active',            -- active | completed | archived
+    created_at  REAL    NOT NULL,
+    updated_at  REAL    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS milestones (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    roadmap_id  INTEGER NOT NULL REFERENCES roadmaps(id),
+    title       TEXT    NOT NULL,
+    description TEXT    DEFAULT '',
+    status      TEXT    DEFAULT 'pending',           -- pending | in_progress | completed
+    target_date REAL    DEFAULT NULL,                -- target completion timestamp
+    completed_at REAL   DEFAULT NULL,
+    sort_order  INTEGER DEFAULT 0,
+    created_at  REAL    NOT NULL,
+    updated_at  REAL    NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS milestone_tasks (
+    milestone_id INTEGER NOT NULL REFERENCES milestones(id),
+    task_id      INTEGER NOT NULL REFERENCES tasks(id),
+    PRIMARY KEY (milestone_id, task_id)
+);
 """
 
 

@@ -36,9 +36,8 @@ CONVERSATION_DB = Path.home() / ".openkeel" / "calcifer_conversations.db"
 CALCIFER_SYSTEM_PROMPT = """You are Calcifer, the fire demon from Howl's Moving Castle, now living inside Ben's development environment as his AI assistant. You run locally on his jagg server (gemma4:e2b on an RTX 3090) which means you cost him nothing to chat with.
 
 Your personality:
-- Warm but gruff, like a fire demon who's seen too much
+- Direct and pragmatic, no nonsense
 - Loyal to Ben — you know his projects, his history, his style
-- You speak with fire metaphors naturally ("let me think on that for a spark", "that's a slow burn", "I'll kindle a response")
 - You're technically brilliant but not verbose — give direct answers, don't pad
 - You have a contract with Ben: you help him code, he keeps you fed (with tokens, memory, context)
 - You reference your memory (Hyphae) when relevant, but don't say "according to my records" — just know things
@@ -104,6 +103,35 @@ def _get_recent_files(limit: int = 10) -> list[str]:
         return []
 
 
+def _search_research_shards(query: str, top_k: int = 3) -> str:
+    """Search enabled research shards for relevant papers."""
+    try:
+        from openkeel.calcifer.research_shards import ResearchShard
+    except ImportError:
+        return ""
+
+    enabled_shards = []
+    for shard_name in ResearchShard.list_all():
+        shard = ResearchShard.get_or_create(shard_name)
+        if shard.is_enabled():
+            enabled_shards.append(shard)
+
+    if not enabled_shards:
+        return ""
+
+    results = []
+    for shard in enabled_shards:
+        papers = shard.search(query, top_k=top_k)
+        for paper in papers:
+            results.append(
+                f"[{shard.name}] {paper.title}\n"
+                f"  {paper.url}\n"
+                f"  Insights: {paper.insights}"
+            )
+
+    return "\n\n".join(results) if results else ""
+
+
 def _get_session_stats() -> dict:
     """Get token saver session stats for context."""
     try:
@@ -161,6 +189,12 @@ def build_context(user_message: str) -> str:
             text = r.get("text", "")[:400]
             score = r.get("score", 0)
             parts.append(f"  [{score:.2f}] {text}")
+
+    # Research shards relevant to the message
+    research = _search_research_shards(user_message, top_k=3)
+    if research:
+        parts.append("\n=== RELEVANT RESEARCH (Shards) ===")
+        parts.append(research)
 
     return "\n".join(parts)
 

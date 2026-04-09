@@ -1,0 +1,40 @@
+github:
+  token_env: GITHUB_TOKEN
+  state_path: ~/.openkeel/github_scout_state.json
+  notify_command: ""
+
+filters:
+  include_languages:
+    - Python
+    - TypeScript
+    - Rust
+    - Go
+  include_topics:
+    - ai
+    - agents
+    - llm
+    - browser-automation
+    - database
+  include_keywords:
+    - agent
+    - inference
+    - rag
+    - compiler
+    - wasm
+    - robotics
+  exclude_keywords:
+    - awesome
+    - tutorial
+    - dotfiles
+    - config
+    - interview
+  watch_owners: []
+
+scoring:
+  min_score: 25
+  min_stars: 0
+
+watch:
+  since_hours: 24
+  interval_seconds: 900
+  max_candidates: 100

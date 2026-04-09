@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Nova</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body, html { width: 100%; height: 100%; background: #000; color: #0a0; overflow: hidden; font-family: 'Courier New', monospace; }
+    #avatar { display: block; width: 100%; height: 100%; }
+
+    #subtitle {
+      position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+      max-width: 80%; text-align: center; font-size: 20px; color: #0a0;
+      text-shadow: 0 0 10px #0a0; opacity: 0.9;
+    }
+
+    #status {
+      position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+      font-size: 14px; color: #040; transition: color 0.3s;
+    }
+
+    #title {
+      position: absolute; top: 20px; left: 50%; transform: translateX(-50%);
+      font-size: 26px; color: #0a0; letter-spacing: 8px; opacity: 0.4;
+      text-shadow: 0 0 20px #0a0;
+    }
+
+    #record-btn {
+      position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
+      width: 70px; height: 70px; border-radius: 50%; border: 3px solid #0a0;
+      background: transparent; color: #0a0; font-size: 12px; cursor: pointer;
+      transition: all 0.2s; display: none;
+    }
+    #record-btn:hover { background: #0a02; }
+    #record-btn.recording { border-color: #f00; color: #f00; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+    #text-input {
+      position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+      width: 60%; display: flex; gap: 10px;
+    }
+    #text-input input {
+      flex: 1; background: #111; border: 1px solid #0a0; color: #0a0;
+      padding: 8px 12px; font-family: 'Courier New'; font-size: 16px; outline: none;
+    }
+    #text-input button {
+      background: #0a0; color: #000; border: none; padding: 8px 16px;
+      font-family: 'Courier New'; font-size: 16px; cursor: pointer;
+    }
+
+    .hint { position: absolute; bottom: 5px; right: 10px; font-size: 10px; color: #020; }
+  </style>
+
+  <script type="importmap">
+  { "imports":
+    {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js/+esm",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+      "talkinghead": "https://cdn.jsdelivr.net/gh/met4citizen/TalkingHead@1.7/modules/talkinghead.mjs"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import { TalkingHead } from "talkinghead";
+
+    let head;
+    let ws;
+    let mediaRecorder;
+    let audioChunks = [];
+    let isRecording = false;
+
+    // ── Emotion → Mood mapping ──
+    const emotionToMood = {
+      "neutral": "neutral",
+      "amused": "happy",
+      "thinking": "neutral",
+      "concerned": "sad",
+      "impressed": "happy",
+      "mysterious": "neutral"
+    };
+
+    // ── Initialize ──
+    document.addEventListener('DOMContentLoaded', async function() {
+      const nodeAvatar = document.getElementById('avatar');
+      const nodeStatus = document.getElementById('status');
+      const nodeSubtitle = document.getElementById('subtitle');
+
+      // Create TalkingHead — no TTS API needed, we handle TTS server-side
+      head = new TalkingHead(nodeAvatar, {
+        lipsyncModules: ["en"],
+        cameraView: "head"
+      });
+
+      // Try to load avatar
+      nodeStatus.textContent = "Loading avatar...";
+      try {
+        // Try local avatar first, then a fallback
+        let avatarUrl = 'mirror_assets/avatar.glb';
+
+        await head.showAvatar({
+          url: avatarUrl,
+          body: 'F',
+          avatarMood: 'neutral',
+          lipsyncLang: 'en'
+        }, (ev) => {
+          if (ev.lengthComputable) {
+            let pct = Math.round(ev.loaded / ev.total * 100);
+            nodeStatus.textContent = `Loading avatar ${pct}%`;
+          }
+        });
+
+        nodeStatus.textContent = "Avatar loaded. Hold SPACE to speak.";
+        document.getElementById('record-btn').style.display = 'block';
+      } catch (err) {
+        console.error(err);
+        nodeStatus.textContent = "Avatar failed to load. Place avatar.glb in mirror_assets/. Using text mode.";
+        document.getElementById('text-input').style.display = 'flex';
+      }
+
+      // ── WebSocket connection ──
+      connectWebSocket();
+
+      // ── Keyboard: SPACE to record ──
+      let spaceReleaseTimer = null;
+
+      document.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' && !e.repeat) {
+          e.preventDefault();
+          if (spaceReleaseTimer) { clearTimeout(spaceReleaseTimer); spaceReleaseTimer = null; }
+          if (!isRecording) startRecording();
+        }
+        if (e.code === 'F11') {
+          e.preventDefault();
+          document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+        }
+      });
+
+      document.addEventListener('keyup', (e) => {
+        if (e.code === 'Space') {
+          e.preventDefault();
+          if (spaceReleaseTimer) clearTimeout(spaceReleaseTimer);
+          spaceReleaseTimer = setTimeout(() => {
+            if (isRecording) stopRecording();
+            spaceReleaseTimer = null;
+          }, 50);
+        }
+      });
+
+      // ── Text input fallback ──
+      const textBtn = document.querySelector('#text-input button');
+      const textField = document.querySelector('#text-input input');
+      if (textBtn) {
+        textBtn.addEventListener('click', () => {
+          const text = textField.value.trim();
+          if (text && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "text", text: text }));
+            nodeSubtitle.textContent = `You: "${text}"`;
+            textField.value = "";
+          }
+        });
+        textField.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') textBtn.click();
+        });
+      }
+    });
+
+    // ── WebSocket ──
+    function connectWebSocket() {
+      ws = new WebSocket(`ws://${location.hostname}:8765`);
+
+      ws.onopen = () => console.log("WebSocket connected");
+
+      ws.onmessage = async (event) => {
+        const data = JSON.parse(event.data);
+        const nodeSubtitle = document.getElementById('subtitle');
+        const nodeStatus = document.getElementById('status');
+
+        if (data.type === "status") {
+          nodeStatus.textContent = data.text;
+
+        } else if (data.type === "user_text") {
+          nodeSubtitle.textContent = `You: "${data.text}"`;
+
+        } else if (data.type === "speak") {
+          nodeSubtitle.textContent = `Nova: ${data.text}`;
+          nodeStatus.textContent = "";
+
+          // Set mood based on emotion
+          if (head && emotionToMood[data.emotion]) {
+            head.setMood(emotionToMood[data.emotion]);
+          }
+
+          // Decode audio
+          const audioBytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0));
+          const audioBuffer = await head.audioCtx.decodeAudioData(audioBytes.buffer);
+
+          // Build word timing arrays from subtitle chunks
+          const words = data.words.map(w => w.word);
+          const wtimes = data.words.map(w => w.start);
+          const wdurations = data.words.map(w => w.duration);
+
+          // Make the avatar speak with lip sync
+          // Pass the text for phoneme-based lip sync, audio for playback
+          const audioObj = { audio: audioBuffer };
+
+          if (words.length > 0) {
+            audioObj.words = words;
+            audioObj.wtimes = wtimes;
+            audioObj.wdurations = wdurations;
+          }
+
+          // If no word timings, TalkingHead will use its built-in
+          // lipsync module to generate visemes from the word text
+          if (words.length === 0 && data.text) {
+            // Estimate timing: evenly distribute words across audio duration
+            const allWords = data.text.split(/\s+/);
+            const totalMs = audioBuffer.duration * 1000;
+            const perWord = totalMs / allWords.length;
+            audioObj.words = allWords;
+            audioObj.wtimes = allWords.map((_, i) => i * perWord);
+            audioObj.wdurations = allWords.map(() => perWord * 0.9);
+          }
+
+          head.speakAudio(audioObj);
+
+          // Look at camera and gesture
+          head.lookAtCamera(500);
+          head.speakWithHands();
+        }
+      };
+
+      ws.onclose = () => {
+        console.log("WebSocket disconnected, reconnecting...");
+        setTimeout(connectWebSocket, 2000);
+      };
+
+      ws.onerror = (err) => console.error("WebSocket error:", err);
+    }
+
+    // ── Audio Recording ──
+    async function startRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+        mediaRecorder.start();
+        isRecording = true;
+
+        document.getElementById('record-btn').classList.add('recording');
+        document.getElementById('record-btn').textContent = 'REC';
+        document.getElementById('status').textContent = "Listening...";
+        document.getElementById('status').style.color = "#0f0";
+      } catch (err) {
+        console.error("Mic error:", err);
+        document.getElementById('status').textContent = "Microphone access denied.";
+      }
+    }
+
+    function stopRecording() {
+      if (!mediaRecorder || mediaRecorder.state === 'inactive') return;
+
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+
+        // Convert to WAV for Whisper
+        const arrayBuffer = await blob.arrayBuffer();
+        const audioCtx = new AudioContext({ sampleRate: 16000 });
+        const decoded = await audioCtx.decodeAudioData(arrayBuffer);
+        const pcm = decoded.getChannelData(0);
+
+        // Create WAV
+        const wavBuffer = encodeWAV(pcm, 16000);
+        const b64 = arrayBufferToBase64(wavBuffer);
+
+        // Send to server
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "audio", audio: b64 }));
+        }
+
+        // Stop mic stream
+        mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        audioCtx.close();
+      };
+
+      mediaRecorder.stop();
+      isRecording = false;
+
+      document.getElementById('record-btn').classList.remove('recording');
+      document.getElementById('record-btn').textContent = 'MIC';
+      document.getElementById('status').textContent = "Processing...";
+      document.getElementById('status').style.color = "#040";
+    }
+
+    // ── WAV Encoder ──
+    function encodeWAV(samples, sampleRate) {
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      writeString(view, 0, 'RIFF');
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeString(view, 8, 'WAVE');
+      writeString(view, 12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeString(view, 36, 'data');
+      view.setUint32(40, samples.length * 2, true);
+      for (let i = 0; i < samples.length; i++) {
+        let s = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+      return buffer;
+    }
+
+    function writeString(view, offset, string) {
+      for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
+    }
+
+    function arrayBufferToBase64(buffer) {
+      let binary = '';
+      const bytes = new Uint8Array(buffer);
+      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary);
+    }
+  </script>
+</head>
+
+<body>
+  <div id="avatar"></div>
+  <div id="title">N O V A</div>
+  <div id="subtitle"></div>
+  <button id="record-btn">MIC</button>
+  <div id="text-input" style="display:none;">
+    <input type="text" placeholder="Type a message...">
+    <button>Send</button>
+  </div>
+  <div id="status">Connecting...</div>
+  <div class="hint">SPACE: talk | F11: fullscreen</div>
+</body>
+</html>

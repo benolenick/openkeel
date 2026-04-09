@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMOS UI Wireframes — Top 3 Opportunities</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', -apple-system, system-ui, sans-serif; background: #0a0a0f; color: #e0e0e8; }
+
+  .nav { position: fixed; top: 0; left: 0; right: 0; background: #12121a; border-bottom: 1px solid #2a2a3a; padding: 12px 32px; display: flex; gap: 24px; z-index: 100; align-items: center; }
+  .nav-title { font-weight: 700; font-size: 14px; color: #7c8aff; letter-spacing: 1px; text-transform: uppercase; margin-right: 24px; }
+  .nav a { color: #888; text-decoration: none; font-size: 13px; padding: 6px 14px; border-radius: 6px; transition: all 0.2s; }
+  .nav a:hover, .nav a.active { color: #fff; background: #1e1e2e; }
+
+  .page { display: none; padding: 80px 32px 40px; max-width: 1200px; margin: 0 auto; }
+  .page.active { display: block; }
+
+  h1 { font-size: 28px; margin-bottom: 8px; }
+  h2 { font-size: 20px; margin: 24px 0 12px; color: #7c8aff; }
+  .subtitle { color: #666; font-size: 14px; margin-bottom: 32px; }
+  .insight { background: #1a1a2e; border-left: 3px solid #7c8aff; padding: 12px 16px; border-radius: 0 8px 8px 0; margin-bottom: 24px; font-size: 13px; line-height: 1.6; }
+  .insight strong { color: #ff8a65; }
+
+  /* ---- Wireframe containers ---- */
+  .wireframe { background: #14141e; border: 1px solid #2a2a3a; border-radius: 12px; overflow: hidden; margin-bottom: 32px; }
+  .wf-titlebar { background: #1a1a28; padding: 10px 16px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #2a2a3a; }
+  .wf-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .wf-dot.r { background: #ff5f57; }
+  .wf-dot.y { background: #febc2e; }
+  .wf-dot.g { background: #28c840; }
+  .wf-title { font-size: 12px; color: #666; margin-left: 8px; }
+  .wf-body { padding: 24px; }
+
+  /* ---- Screen 1: AI Settings Search ---- */
+  .search-bar { display: flex; align-items: center; background: #1e1e2e; border: 1px solid #3a3a5a; border-radius: 10px; padding: 14px 18px; margin-bottom: 20px; gap: 12px; }
+  .search-bar .icon { font-size: 20px; color: #7c8aff; }
+  .search-bar input { background: none; border: none; color: #e0e0e8; font-size: 15px; flex: 1; outline: none; }
+  .search-bar input::placeholder { color: #555; }
+  .search-bar .shortcut { background: #2a2a3a; color: #888; font-size: 11px; padding: 3px 8px; border-radius: 4px; }
+
+  .search-results { display: flex; flex-direction: column; gap: 10px; }
+  .search-result { background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 8px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; cursor: pointer; transition: all 0.2s; }
+  .search-result:hover { border-color: #7c8aff; background: #1e1e30; }
+  .sr-icon { font-size: 24px; width: 40px; text-align: center; }
+  .sr-text { flex: 1; }
+  .sr-title { font-size: 14px; font-weight: 500; }
+  .sr-desc { font-size: 12px; color: #666; margin-top: 2px; }
+  .sr-action { background: #7c8aff22; color: #7c8aff; font-size: 11px; padding: 4px 10px; border-radius: 5px; white-space: nowrap; }
+  .sr-match { color: #ff8a65; font-size: 11px; margin-top: 4px; }
+
+  .suggestions { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+  .suggestion { background: #1e1e2e; border: 1px solid #2a2a3a; padding: 6px 12px; border-radius: 16px; font-size: 12px; color: #888; cursor: pointer; transition: all 0.2s; }
+  .suggestion:hover { border-color: #7c8aff; color: #7c8aff; }
+
+  /* ---- Screen 2: Config Guardian ---- */
+  .config-panel { display: grid; grid-template-columns: 240px 1fr; gap: 0; min-height: 480px; }
+  .config-sidebar { background: #12121a; border-right: 1px solid #2a2a3a; padding: 16px 0; }
+  .cs-item { padding: 10px 20px; font-size: 13px; color: #888; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: all 0.15s; }
+  .cs-item:hover { background: #1a1a28; color: #ccc; }
+  .cs-item.active { background: #1e1e30; color: #fff; border-left: 2px solid #7c8aff; }
+  .cs-item .badge { background: #ff5f5722; color: #ff5f57; font-size: 10px; padding: 2px 6px; border-radius: 8px; margin-left: auto; }
+  .cs-item .badge.ok { background: #28c84022; color: #28c840; }
+  .config-main { padding: 20px 24px; }
+
+  .config-card { background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 8px; padding: 16px; margin-bottom: 12px; }
+  .cc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .cc-title { font-size: 14px; font-weight: 500; }
+  .cc-status { font-size: 11px; padding: 3px 8px; border-radius: 4px; }
+  .cc-status.protected { background: #28c84022; color: #28c840; }
+  .cc-status.drifted { background: #ff5f5722; color: #ff5f57; }
+  .cc-status.new { background: #7c8aff22; color: #7c8aff; }
+  .cc-body { font-size: 12px; color: #888; line-height: 1.6; }
+  .cc-diff { background: #0a0a14; border-radius: 6px; padding: 10px 14px; font-family: monospace; font-size: 11px; margin-top: 8px; }
+  .cc-diff .add { color: #28c840; }
+  .cc-diff .del { color: #ff5f57; }
+  .cc-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .btn { padding: 6px 14px; border-radius: 6px; font-size: 12px; border: none; cursor: pointer; transition: all 0.15s; }
+  .btn-primary { background: #7c8aff; color: #fff; }
+  .btn-primary:hover { background: #6a78ee; }
+  .btn-ghost { background: none; border: 1px solid #3a3a5a; color: #888; }
+  .btn-ghost:hover { border-color: #7c8aff; color: #ccc; }
+  .btn-danger { background: none; border: 1px solid #ff5f5744; color: #ff5f57; }
+
+  /* ---- Screen 3: Clean Uninstall ---- */
+  .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .app-card { background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 10px; padding: 16px; text-align: center; cursor: pointer; transition: all 0.2s; position: relative; }
+  .app-card:hover { border-color: #7c8aff; }
+  .app-card.selected { border-color: #ff5f57; background: #1e1420; }
+  .app-icon { font-size: 36px; margin-bottom: 8px; }
+  .app-name { font-size: 13px; font-weight: 500; }
+  .app-size { font-size: 11px; color: #666; margin-top: 4px; }
+  .app-residue { font-size: 10px; color: #ff8a65; margin-top: 4px; }
+  .app-check { position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; border-radius: 50%; border: 2px solid #3a3a5a; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+  .app-card.selected .app-check { background: #ff5f57; border-color: #ff5f57; color: #fff; }
+
+  .uninstall-summary { background: #1a1a28; border: 1px solid #2a2a3a; border-radius: 10px; padding: 20px; }
+  .us-title { font-size: 14px; font-weight: 500; margin-bottom: 12px; }
+  .us-row { display: flex; justify-content: space-between; font-size: 12px; padding: 6px 0; border-bottom: 1px solid #1e1e2e; }
+  .us-row:last-child { border: none; }
+  .us-label { color: #888; }
+  .us-val { color: #e0e0e8; }
+  .us-val.warn { color: #ff8a65; }
+  .us-bar { height: 6px; background: #2a2a3a; border-radius: 3px; margin: 12px 0; overflow: hidden; }
+  .us-bar-fill { height: 100%; border-radius: 3px; }
+  .us-bar-fill.configs { background: #7c8aff; }
+  .us-bar-fill.cache { background: #ff8a65; }
+  .us-bar-fill.logs { background: #febc2e; }
+  .us-legend { display: flex; gap: 16px; font-size: 11px; color: #888; margin-bottom: 16px; }
+  .us-legend span::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+  .us-legend .l-config::before { background: #7c8aff; }
+  .us-legend .l-cache::before { background: #ff8a65; }
+  .us-legend .l-logs::before { background: #febc2e; }
+
+  .file-tree { font-family: monospace; font-size: 11px; color: #888; margin-top: 12px; background: #0a0a14; border-radius: 6px; padding: 12px 14px; max-height: 200px; overflow-y: auto; }
+  .file-tree .dir { color: #7c8aff; }
+  .file-tree .size { color: #555; float: right; }
+
+  /* ---- Overview page ---- */
+  .opp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .opp-card { background: #14141e; border: 1px solid #2a2a3a; border-radius: 10px; padding: 20px; transition: all 0.2s; }
+  .opp-card:hover { border-color: #7c8aff; }
+  .opp-num { font-size: 48px; font-weight: 800; color: #7c8aff22; float: right; margin-top: -8px; }
+  .opp-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  .opp-stat { font-size: 12px; color: #ff8a65; margin-bottom: 8px; }
+  .opp-desc { font-size: 13px; color: #888; line-height: 1.5; }
+  .opp-tags { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .opp-tag { background: #1e1e2e; color: #666; font-size: 10px; padding: 3px 8px; border-radius: 10px; }
+
+  .data-bar { display: flex; gap: 24px; margin-bottom: 32px; flex-wrap: wrap; }
+  .data-stat { background: #14141e; border: 1px solid #2a2a3a; border-radius: 8px; padding: 16px 20px; min-width: 140px; }
+  .ds-num { font-size: 28px; font-weight: 700; color: #7c8aff; }
+  .ds-label { font-size: 11px; color: #666; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <span class="nav-title">LLMOS Wireframes</span>
+  <a href="#" class="active" onclick="showPage('overview')">Overview</a>
+  <a href="#" onclick="showPage('search')">1. AI Settings Search</a>
+  <a href="#" onclick="showPage('config')">2. Config Guardian</a>
+  <a href="#" onclick="showPage('uninstall')">3. Clean Uninstall</a>
+</div>
+
+<!-- ============ OVERVIEW ============ -->
+<div class="page active" id="page-overview">
+  <h1>LLMOS Design Opportunities</h1>
+  <p class="subtitle">Derived from 1,260 tagged user complaints across Reddit, HN, StackExchange, and MS Answers</p>
+
+  <div class="data-bar">
+    <div class="data-stat"><div class="ds-num">1,260</div><div class="ds-label">Posts Analyzed</div></div>
+    <div class="data-stat"><div class="ds-num">51%</div><div class="ds-label">Frustrated+</div></div>
+    <div class="data-stat"><div class="ds-num">341</div><div class="ds-label">UI Pain Posts</div></div>
+    <div class="data-stat"><div class="ds-num">158</div><div class="ds-label">Perf Pain Posts</div></div>
+    <div class="data-stat"><div class="ds-num">6</div><div class="ds-label">Opportunities</div></div>
+  </div>
+
+  <h2>Tier 1 — Build First</h2>
+  <div class="opp-cards">
+    <div class="opp-card">
+      <span class="opp-num">1</span>
+      <div class="opp-title">AI Settings Search</div>
+      <div class="opp-stat">424+ posts &bull; UI + Settings categories</div>
+      <div class="opp-desc">Users can't find settings. Buried 5 menus deep, different on every distro. Describe what you want in plain English, LLMOS finds and changes it.</div>
+      <div class="opp-tags"><span class="opp-tag">frustrated</span><span class="opp-tag">confused</span><span class="opp-tag">all OS</span><span class="opp-tag">novice + intermediate</span></div>
+    </div>
+    <div class="opp-card">
+      <span class="opp-num">2</span>
+      <div class="opp-title">Config Guardian</div>
+      <div class="opp-stat">156+ posts &bull; Settings + Update categories</div>
+      <div class="opp-desc">Settings don't stick after reboot or update. Keyboard layouts, display scaling, default apps, hardware configs — all lost. A persistent config layer that survives everything.</div>
+      <div class="opp-tags"><span class="opp-tag">helpless</span><span class="opp-tag">resigned</span><span class="opp-tag">Linux heavy</span><span class="opp-tag">intermediate</span></div>
+    </div>
+    <div class="opp-card">
+      <span class="opp-num">3</span>
+      <div class="opp-title">Clean Uninstall</div>
+      <div class="opp-stat">59 posts &bull; File Management</div>
+      <div class="opp-desc">Uninstalled apps leave ghosts — config dirs, cache, orphaned shortcuts, broken menu entries. Track every file an app touches. One click to truly remove it.</div>
+      <div class="opp-tags"><span class="opp-tag">frustrated</span><span class="opp-tag">Windows + Linux</span><span class="opp-tag">all levels</span></div>
+    </div>
+  </div>
+
+  <h2>Tier 2 — Differentiators</h2>
+  <div class="opp-cards">
+    <div class="opp-card">
+      <span class="opp-num">4</span>
+      <div class="opp-title">Performance Doctor</div>
+      <div class="opp-stat">158 posts</div>
+      <div class="opp-desc">System is slow but users can't diagnose why. Always-on health monitor that explains bottlenecks in plain English and suggests fixes.</div>
+      <div class="opp-tags"><span class="opp-tag">frustrated</span><span class="opp-tag">all OS</span></div>
+    </div>
+    <div class="opp-card">
+      <span class="opp-num">5</span>
+      <div class="opp-title">Hardware Guardian</div>
+      <div class="opp-stat">Settings + Performance overlap</div>
+      <div class="opp-desc">GPU resets, fingerprint readers breaking, Wacom configs vanishing. Auto-detect and fix driver issues before the user notices.</div>
+      <div class="opp-tags"><span class="opp-tag">angry</span><span class="opp-tag">Linux</span></div>
+    </div>
+    <div class="opp-card">
+      <span class="opp-num">6</span>
+      <div class="opp-title">Update Preview + Rollback</div>
+      <div class="opp-stat">73 posts</div>
+      <div class="opp-desc">People dread updates because things break. Show what will change, let them approve, one-click undo if something goes wrong.</div>
+      <div class="opp-tags"><span class="opp-tag">fearful</span><span class="opp-tag">Windows + Linux</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SCREEN 1: AI SETTINGS SEARCH ============ -->
+<div class="page" id="page-search">
+  <h1>AI Settings Search</h1>
+  <p class="subtitle">Natural language settings discovery — "I want to make the text bigger" finds Display Scaling</p>
+
+  <div class="insight">
+    <strong>Research signal:</strong> 424 posts where users couldn't find OS settings. Common patterns: "Where is the setting for...", "I used to be able to...", "Why did they move..."
+  </div>
+
+  <div class="wireframe">
+    <div class="wf-titlebar">
+      <div class="wf-dot r"></div><div class="wf-dot y"></div><div class="wf-dot g"></div>
+      <span class="wf-title">LLMOS Settings</span>
+    </div>
+    <div class="wf-body">
+      <div class="search-bar">
+        <span class="icon">&#x1F50D;</span>
+        <input type="text" placeholder="What do you want to change?" value="make the dock stop popping up so fast" readonly>
+        <span class="shortcut">Super + S</span>
+      </div>
+
+      <div class="suggestions">
+        <span class="suggestion">change default browser</span>
+        <span class="suggestion">make text bigger</span>
+        <span class="suggestion">stop notifications</span>
+        <span class="suggestion">dark mode</span>
+        <span class="suggestion">keyboard layout</span>
+      </div>
+
+      <div class="search-results">
+        <div class="search-result">
+          <span class="sr-icon">&#9881;</span>
+          <div class="sr-text">
+            <div class="sr-title">Dock Auto-Hide Delay</div>
+            <div class="sr-desc">Controls how long you must hover before the dock appears &bull; Desktop & Dock &gt; Auto-hide delay</div>
+            <div class="sr-match">Matched intent: "dock popping up so fast" &rarr; auto-hide animation timing</div>
+          </div>
+          <span class="sr-action">Adjust &rarr;</span>
+        </div>
+        <div class="search-result">
+          <span class="sr-icon">&#128396;</span>
+          <div class="sr-text">
+            <div class="sr-title">Dock Animation Speed</div>
+            <div class="sr-desc">Speed of dock show/hide animation &bull; Desktop & Dock &gt; Animation</div>
+            <div class="sr-match">Related: animation speed affects perceived "pop" feel</div>
+          </div>
+          <span class="sr-action">Adjust &rarr;</span>
+        </div>
+        <div class="search-result">
+          <span class="sr-icon">&#128187;</span>
+          <div class="sr-text">
+            <div class="sr-title">Dock Behavior on Fullscreen</div>
+            <div class="sr-desc">Whether dock activates in fullscreen apps &bull; Desktop & Dock &gt; Fullscreen</div>
+          </div>
+          <span class="sr-action">Adjust &rarr;</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Key Design Decisions</h2>
+  <div class="insight">
+    <strong>Intent matching, not keyword search.</strong> "make text bigger" should find Display Scaling, Font Size, AND Accessibility Zoom — all three, ranked by likelihood. The LLM understands what you mean, not just what you typed.
+  </div>
+  <div class="insight">
+    <strong>One-click apply.</strong> Don't just show where the setting is — offer to change it right there. "Adjust &rarr;" opens an inline slider/toggle. No navigation needed.
+  </div>
+  <div class="insight">
+    <strong>Super+S global hotkey.</strong> Available from anywhere, even inside apps. Like Spotlight but specifically for system settings.
+  </div>
+</div>
+
+<!-- ============ SCREEN 2: CONFIG GUARDIAN ============ -->
+<div class="page" id="page-config">
+  <h1>Config Guardian</h1>
+  <p class="subtitle">Your settings survive updates, reboots, and distro upgrades — always</p>
+
+  <div class="insight">
+    <strong>Research signal:</strong> 156 posts about settings resetting. Users configure keyboard layouts, display scaling, default apps — then reboot and it's gone. The #1 cause of "helpless" and "resigned" emotions.
+  </div>
+
+  <div class="wireframe">
+    <div class="wf-titlebar">
+      <div class="wf-dot r"></div><div class="wf-dot y"></div><div class="wf-dot g"></div>
+      <span class="wf-title">LLMOS Config Guardian</span>
+    </div>
+    <div class="wf-body">
+      <div class="config-panel">
+        <div class="config-sidebar">
+          <div class="cs-item active">
+            <span>&#128737;</span> Overview
+          </div>
+          <div class="cs-item">
+            <span>&#9000;</span> Keyboard
+            <span class="badge ok">OK</span>
+          </div>
+          <div class="cs-item">
+            <span>&#128424;</span> Display
+            <span class="badge">drifted</span>
+          </div>
+          <div class="cs-item">
+            <span>&#127925;</span> Audio
+            <span class="badge ok">OK</span>
+          </div>
+          <div class="cs-item">
+            <span>&#128274;</span> Default Apps
+            <span class="badge ok">OK</span>
+          </div>
+          <div class="cs-item">
+            <span>&#128433;</span> Input Devices
+            <span class="badge">drifted</span>
+          </div>
+          <div class="cs-item">
+            <span>&#127760;</span> Network
+            <span class="badge ok">OK</span>
+          </div>
+        </div>
+        <div class="config-main">
+          <h2 style="margin-top:0;">Config Status</h2>
+
+          <div class="config-card">
+            <div class="cc-header">
+              <span class="cc-title">Display Scaling</span>
+              <span class="cc-status drifted">Drifted after update</span>
+            </div>
+            <div class="cc-body">
+              Your display scaling was changed from 150% to 100% by the GNOME 46.1 update on Apr 5.
+            </div>
+            <div class="cc-diff">
+              <div class="del">- org.gnome.desktop.interface scaling-factor: 2</div>
+              <div class="add">+ org.gnome.desktop.interface scaling-factor: 1</div>
+              <div style="color:#555;">  Changed by: gnome-shell 46.1 post-install script</div>
+            </div>
+            <div class="cc-actions">
+              <button class="btn btn-primary">Restore my setting</button>
+              <button class="btn btn-ghost">Accept new value</button>
+              <button class="btn btn-ghost">Always protect this</button>
+            </div>
+          </div>
+
+          <div class="config-card">
+            <div class="cc-header">
+              <span class="cc-title">Wacom Tablet Pressure Curve</span>
+              <span class="cc-status drifted">Reset after reboot</span>
+            </div>
+            <div class="cc-body">
+              Custom pressure curve was reset to default after reboot. This has happened 3 times this month.
+            </div>
+            <div class="cc-actions">
+              <button class="btn btn-primary">Restore & lock</button>
+              <button class="btn btn-danger">Stop tracking</button>
+            </div>
+          </div>
+
+          <div class="config-card">
+            <div class="cc-header">
+              <span class="cc-title">Keyboard Layout (US-Intl + Custom Dead Keys)</span>
+              <span class="cc-status protected">Protected</span>
+            </div>
+            <div class="cc-body">
+              Your custom XKB layout is locked and will be reapplied after any update. Last verified: 2 hours ago.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Key Design Decisions</h2>
+  <div class="insight">
+    <strong>Drift detection, not just backup.</strong> The system watches for changes and tells you WHO changed it (which update, which package). Users don't just want their setting back — they want to know why it moved.
+  </div>
+  <div class="insight">
+    <strong>"Always protect this" creates a contract.</strong> Once locked, LLMOS will reapply this setting after any event — update, reboot, package install. The user should never have to set it twice.
+  </div>
+  <div class="insight">
+    <strong>Show the diff.</strong> Users with technical skill want to see exactly what changed. Novice users just want the "Restore" button. Both are served by the same card.
+  </div>
+</div>
+
+<!-- ============ SCREEN 3: CLEAN UNINSTALL ============ -->
+<div class="page" id="page-uninstall">
+  <h1>Clean Uninstall</h1>
+  <p class="subtitle">Every file an app ever touched, tracked and removable — no ghosts left behind</p>
+
+  <div class="insight">
+    <strong>Research signal:</strong> 59 posts about leftover files, broken shortcuts, and orphaned configs after uninstalling software. Strongest on Windows but equally painful on Linux (dotfile sprawl).
+  </div>
+
+  <div class="wireframe">
+    <div class="wf-titlebar">
+      <div class="wf-dot r"></div><div class="wf-dot y"></div><div class="wf-dot g"></div>
+      <span class="wf-title">LLMOS App Manager — Uninstall</span>
+    </div>
+    <div class="wf-body">
+      <div class="search-bar" style="margin-bottom: 16px;">
+        <span class="icon">&#128270;</span>
+        <input type="text" placeholder="Search installed apps..." value="" readonly>
+      </div>
+
+      <div class="app-grid">
+        <div class="app-card selected">
+          <div class="app-check">&#10003;</div>
+          <div class="app-icon">&#127918;</div>
+          <div class="app-name">Steam</div>
+          <div class="app-size">2.4 GB (app) + 48 GB (games)</div>
+          <div class="app-residue">+ 340 MB residual files</div>
+        </div>
+        <div class="app-card">
+          <div class="app-check"></div>
+          <div class="app-icon">&#127912;</div>
+          <div class="app-name">GIMP</div>
+          <div class="app-size">312 MB</div>
+          <div class="app-residue">+ 24 MB residual</div>
+        </div>
+        <div class="app-card">
+          <div class="app-check"></div>
+          <div class="app-icon">&#128187;</div>
+          <div class="app-name">VS Code</div>
+          <div class="app-size">340 MB</div>
+        </div>
+        <div class="app-card">
+          <div class="app-check"></div>
+          <div class="app-icon">&#127911;</div>
+          <div class="app-name">Spotify</div>
+          <div class="app-size">180 MB</div>
+          <div class="app-residue">+ 1.2 GB cache</div>
+        </div>
+        <div class="app-card">
+          <div class="app-check"></div>
+          <div class="app-icon">&#128172;</div>
+          <div class="app-name">Discord</div>
+          <div class="app-size">220 MB</div>
+        </div>
+      </div>
+
+      <div class="uninstall-summary">
+        <div class="us-title">Removing: Steam</div>
+
+        <div class="us-row"><span class="us-label">Application binary</span><span class="us-val">2.4 GB</span></div>
+        <div class="us-row"><span class="us-label">Game library (~/Steam/steamapps)</span><span class="us-val warn">48.2 GB &mdash; keep games?</span></div>
+        <div class="us-row"><span class="us-label">Config files (5 locations)</span><span class="us-val">12 MB</span></div>
+        <div class="us-row"><span class="us-label">Cache &amp; logs</span><span class="us-val">328 MB</span></div>
+        <div class="us-row"><span class="us-label">Desktop entries &amp; MIME handlers</span><span class="us-val">3 files</span></div>
+        <div class="us-row"><span class="us-label">Systemd user services</span><span class="us-val">1 unit</span></div>
+
+        <div class="us-bar">
+          <div style="display:flex; height:100%;">
+            <div class="us-bar-fill configs" style="width:4%;"></div>
+            <div class="us-bar-fill cache" style="width:90%;"></div>
+            <div class="us-bar-fill logs" style="width:6%;"></div>
+          </div>
+        </div>
+        <div class="us-legend">
+          <span class="l-config">Config (12 MB)</span>
+          <span class="l-cache">Game data (48 GB)</span>
+          <span class="l-logs">Cache/logs (328 MB)</span>
+        </div>
+
+        <div class="file-tree">
+          <div><span class="dir">~/.steam/</span> <span class="size">config, runtime</span></div>
+          <div><span class="dir">~/.local/share/Steam/</span> <span class="size">48.2 GB</span></div>
+          <div>&nbsp;&nbsp;steamapps/ <span class="size">47.8 GB</span></div>
+          <div>&nbsp;&nbsp;config/ <span class="size">4 MB</span></div>
+          <div>&nbsp;&nbsp;logs/ <span class="size">28 MB</span></div>
+          <div><span class="dir">~/.config/unity3d/</span> <span class="size">game saves</span></div>
+          <div><span class="dir">~/.local/share/applications/</span> <span class="size">steam.desktop</span></div>
+          <div><span class="dir">/usr/share/mime/</span> <span class="size">x-steam-game handler</span></div>
+          <div><span class="dir">~/.config/systemd/user/</span> <span class="size">steam-update.service</span></div>
+        </div>
+
+        <div class="cc-actions" style="margin-top: 16px;">
+          <button class="btn btn-primary">Remove app + configs (keep games)</button>
+          <button class="btn btn-danger">Remove everything (50.9 GB)</button>
+          <button class="btn btn-ghost">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Key Design Decisions</h2>
+  <div class="insight">
+    <strong>Track from install, not just at uninstall.</strong> LLMOS monitors file creation per-app from the moment it's installed (via eBPF/fanotify). At uninstall time, it already knows every file that app ever wrote.
+  </div>
+  <div class="insight">
+    <strong>Smart defaults for user data.</strong> Game saves, documents, and projects are flagged separately from app junk. "Remove everything" is always available but never the default — data loss is the thing people fear most.
+  </div>
+  <div class="insight">
+    <strong>Residual scan for already-installed apps.</strong> For apps installed before LLMOS, run a one-time scan that maps known dotfile patterns to installed packages. Shows residual file size on the app card so users can see the mess.
+  </div>
+</div>
+
+<script>
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav a').forEach(a => a.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

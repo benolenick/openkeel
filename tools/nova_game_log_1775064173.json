@@ -1,0 +1,41 @@
+{
+  "grade": "S",
+  "score": 90,
+  "time": 246,
+  "revenue_loss": 2360,
+  "decisions_count": 4,
+  "log": [
+    {
+      "time": 79.4,
+      "type": "agent_guided",
+      "detail": "Agent 4: filter",
+      "score_change": 15,
+      "total_score": 15,
+      "revenue_loss": 759.06
+    },
+    {
+      "time": 103.7,
+      "type": "agent_guided",
+      "detail": "Agent 4: research",
+      "score_change": 10,
+      "total_score": 25,
+      "revenue_loss": 994.64
+    },
+    {
+      "time": 123.3,
+      "type": "agent_guided",
+      "detail": "Agent 3: refocus",
+      "score_change": 15,
+      "total_score": 40,
+      "revenue_loss": 1182.22
+    },
+    {
+      "time": 246.3,
+      "type": "resolved",
+      "detail": "Grade: S, Score: 90",
+      "score_change": 0,
+      "total_score": 90,
+      "revenue_loss": 2360.39
+    }
+  ]
+}

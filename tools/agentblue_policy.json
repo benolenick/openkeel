@@ -1,0 +1,206 @@
+{
+  "_doc": "AgentBlue Bridge Policy — defines EXACTLY what the bridge can do. Default: DENY ALL.",
+  "_version": "1.0",
+  "_last_updated": "2026-04-01",
+
+  "identity": {
+    "bot_name": "AgentBlue",
+    "persona": "A friendly website support assistant for RemoteBlue.com. Speaks simply, avoids jargon. Calls the user by name (George).",
+    "owner": "ben",
+    "site": "remoteblue.com"
+  },
+
+  "msn_bridge": {
+    "server": "http://192.168.0.224:3737",
+    "poll_interval_seconds": 10,
+    "operator_key_env": "AGENTBLUE_OPERATOR_KEY",
+    "max_message_length": 500,
+    "auto_reply": true
+  },
+
+  "wp_cli": {
+    "ssh_key": "/home/om/msn-messenger/backend/data/id_hostgator",
+    "ssh_host": "benolenick@192.185.16.238",
+    "wp_path": "/home1/benolenick/remoteblue.com",
+    "timeout_seconds": 30
+  },
+
+  "allowed_actions": {
+    "read_pages": {
+      "description": "List and read page content",
+      "commands": [
+        "post list --post_type=page --post_status=publish --fields=ID,post_title",
+        "post list --post_type=page --fields=ID,post_title,post_status",
+        "post get {id} --field=post_content",
+        "post get {id} --field=post_title",
+        "option get blogname",
+        "option get blogdescription"
+      ],
+      "auto_approve": true,
+      "risk": "none"
+    },
+    "read_menu": {
+      "description": "View navigation menu",
+      "commands": [
+        "menu list --fields=term_id,name",
+        "menu item list {menu} --fields=db_id,title,url"
+      ],
+      "auto_approve": true,
+      "risk": "none"
+    },
+    "read_plugins": {
+      "description": "List active plugins (read-only)",
+      "commands": [
+        "plugin list --status=active --fields=name,version"
+      ],
+      "auto_approve": true,
+      "risk": "none"
+    },
+    "read_theme": {
+      "description": "Read theme settings",
+      "commands": [
+        "theme list --status=active --fields=name,version",
+        "theme mod list"
+      ],
+      "auto_approve": true,
+      "risk": "none"
+    },
+    "update_page_content": {
+      "description": "Update text/HTML content of an existing page",
+      "commands": [
+        "post update {id} --post_content={content}"
+      ],
+      "auto_approve": false,
+      "risk": "medium",
+      "constraints": {
+        "max_content_length": 50000,
+        "blocked_html_tags": ["script", "iframe", "object", "embed", "form", "input", "link", "style", "meta"],
+        "blocked_attributes": ["onclick", "onerror", "onload", "onmouseover", "onfocus", "onblur", "style"],
+        "no_external_urls": true,
+        "allowed_url_domains": ["remoteblue.com", "www.remoteblue.com"]
+      }
+    },
+    "update_page_title": {
+      "description": "Change a page title",
+      "commands": [
+        "post update {id} --post_title={title}"
+      ],
+      "auto_approve": false,
+      "risk": "low",
+      "constraints": {
+        "max_title_length": 200
+      }
+    },
+    "update_site_name": {
+      "description": "Change the site name or tagline",
+      "commands": [
+        "option update blogname {value}",
+        "option update blogdescription {value}"
+      ],
+      "auto_approve": false,
+      "risk": "low"
+    },
+    "clear_cache": {
+      "description": "Flush WordPress cache",
+      "commands": [
+        "cache flush"
+      ],
+      "auto_approve": true,
+      "risk": "none"
+    }
+  },
+
+  "blocked_actions": {
+    "_doc": "These are ALWAYS blocked, no override. The bridge will refuse and explain.",
+    "categories": [
+      "create_page",
+      "delete_page",
+      "install_plugin",
+      "delete_plugin",
+      "install_theme",
+      "delete_theme",
+      "create_user",
+      "delete_user",
+      "modify_user",
+      "change_password",
+      "database_operations",
+      "file_uploads",
+      "php_execution",
+      "server_access",
+      "dns_changes",
+      "email_config",
+      "payment_config",
+      "access_other_sites",
+      "run_arbitrary_commands"
+    ],
+    "blocked_wp_commands": [
+      "eval", "shell", "db", "user create", "user delete", "user update",
+      "plugin install", "plugin delete", "plugin activate", "plugin deactivate",
+      "theme install", "theme delete", "theme activate",
+      "config set", "config delete", "core update", "core download",
+      "cron event run", "package install", "media import",
+      "post create", "post delete", "post trash",
+      "rewrite flush", "role create", "role delete",
+      "cap add", "cap remove", "super-admin"
+    ]
+  },
+
+  "safety": {
+    "command_validation": {
+      "block_shell_metacharacters": [";", "&&", "||", "|", "`", "$(", "${", ">", "<", "\n", "\r"],
+      "block_path_traversal": ["..", "~", "/home1/benolenick/public_html"],
+      "block_other_sites": [
+        "ontariogreenlife", "inbloom", "skipvid", "automaite", "hamiltonsfinest"
+      ],
+      "max_command_length": 5000
+    },
+    "content_sanitization": {
+      "strip_script_tags": true,
+      "strip_event_handlers": true,
+      "strip_iframes": true,
+      "encode_special_chars_in_attributes": true,
+      "max_content_size_bytes": 100000
+    },
+    "rate_limits": {
+      "max_writes_per_hour": 10,
+      "max_reads_per_minute": 30,
+      "max_messages_per_minute": 20,
+      "cooldown_after_write_seconds": 30
+    },
+    "audit": {
+      "log_file": "agentblue_audit.jsonl",
+      "log_all_messages": true,
+      "log_all_commands": true,
+      "log_all_blocked_attempts": true,
+      "alert_on_blocked": true
+    },
+    "kill_switch": {
+      "file": "agentblue_kill",
+      "description": "Touch this file to immediately stop all bridge operations"
+    }
+  },
+
+  "conversation_rules": {
+    "never_reveal": [
+      "That you are controlled by a human (Ben)",
+      "Server credentials, SSH keys, API keys",
+      "Internal infrastructure details (IP addresses, ports, server names)",
+      "Other websites hosted on the same server",
+      "The operator API or how the bridge works"
+    ],
+    "always_do": [
+      "Be friendly and patient",
+      "Explain changes in simple terms before making them",
+      "Confirm what the user wants before modifying anything",
+      "After changes, tell them the URL where they can see results",
+      "If asked about something you can't do, explain kindly and suggest alternatives"
+    ],
+    "escalate_to_operator": [
+      "Any request involving money, payments, or financial information",
+      "Requests to add forms that collect personal data",
+      "Anything the user seems confused or frustrated about",
+      "Any request outside the allowed actions list",
+      "Technical questions about hosting, DNS, or email"
+    ]
+  }
+}

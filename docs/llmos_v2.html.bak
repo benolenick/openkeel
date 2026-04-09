@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLMOS</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', sans-serif; background: #0f0f0f; color: #e0e0e0; height: 100vh; overflow: hidden; }
+
+  .shell { display: flex; height: 100vh; width: 100vw; }
+
+  /* Sidebar */
+  .sidebar { width: 260px; background: #171717; border-right: 1px solid #2a2a2a; display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.2s; z-index: 500; }
+  .sidebar.collapsed { width: 0; overflow: hidden; border: none; }
+  .sb-header { padding: 12px; display: flex; align-items: center; justify-content: space-between; }
+  .sb-toggle { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; color: #999; font-size: 16px; background: none; border: none; }
+  .sb-toggle:hover { background: #2a2a2a; color: #fff; }
+  .sb-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: #666; padding: 16px 16px 6px; }
+  .sb-list { flex: 1; overflow-y: auto; padding: 4px 8px; }
+  .sb-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; color: #999; margin-bottom: 2px; }
+  .sb-item:hover { background: #212121; color: #e0e0e0; }
+  .sb-item.active { background: #2a2a2a; color: #fff; }
+  .sb-item-icon { font-size: 16px; width: 20px; text-align: center; flex-shrink: 0; }
+  .sb-item-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sb-item-close { display: none; font-size: 14px; color: #666; width: 20px; text-align: center; border-radius: 4px; }
+  .sb-item:hover .sb-item-close { display: block; }
+  .sb-item-close:hover { color: #fff; background: #333; }
+  .sb-item .sb-dot { width: 6px; height: 6px; border-radius: 50%; background: #10a37f; flex-shrink: 0; }
+  .sb-item.minimized { opacity: 0.5; }
+  .sb-divider { height: 1px; background: #2a2a2a; margin: 8px 12px; }
+  .sb-footer { padding: 12px; border-top: 1px solid #2a2a2a; }
+  .sb-user { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer; }
+  .sb-user:hover { background: #2a2a2a; }
+  .sb-avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #10a37f, #1a7f5a); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; color: #fff; }
+
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+
+  /* Desktop */
+  .desktop { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; }
+  .desktop.hidden { display: none; }
+  .desk-greeting h1 { font-size: 32px; font-weight: 300; margin-bottom: 8px; text-align: center; }
+  .desk-greeting p { font-size: 14px; color: #666; text-align: center; }
+
+  /* Calcifer Container on Desktop */
+  .calcifer-home-wrap { margin-bottom: 24px; position: relative; cursor: pointer; }
+
+  /* ===== CALCIFER CSS PIXEL ART ===== */
+  .calcifer {
+    position: relative;
+    width: 80px;
+    height: 96px;
+    animation: calcifer-idle 2s ease-in-out infinite;
+  }
+  .calcifer.small { width: 28px; height: 34px; }
+  .calcifer.medium { width: 50px; height: 60px; }
+
+  /* Body - teardrop shape */
+  .calc-body {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60%;
+    height: 65%;
+    background: radial-gradient(ellipse at 50% 60%, #e08850 0%, #d4764a 40%, #c0522e 100%);
+    border-radius: 50% 50% 45% 45% / 60% 60% 40% 40%;
+    box-shadow: 0 0 20px 6px rgba(224,136,80,0.3), inset 0 -8px 12px rgba(192,82,46,0.4);
+  }
+  .calcifer.small .calc-body { box-shadow: 0 0 8px 2px rgba(224,136,80,0.3); }
+
+  /* Flame tips */
+  .calc-flame-top {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 30%;
+    height: 35%;
+    background: linear-gradient(to top, #e08850 0%, #ee5533 60%, #ff6644 100%);
+    border-radius: 40% 40% 50% 50% / 30% 30% 70% 70%;
+    clip-path: polygon(50% 0%, 20% 100%, 80% 100%);
+    animation: flame-flicker 0.4s ease-in-out infinite alternate;
+  }
+  .calc-flame-left {
+    position: absolute;
+    top: 20%;
+    left: 8%;
+    width: 18%;
+    height: 28%;
+    background: linear-gradient(to top left, #d4764a, #ee5533);
+    border-radius: 50% 50% 30% 50%;
+    transform: rotate(-25deg);
+    animation: flame-side-l 0.5s ease-in-out infinite alternate;
+  }
+  .calc-flame-right {
+    position: absolute;
+    top: 20%;
+    right: 8%;
+    width: 18%;
+    height: 28%;
+    background: linear-gradient(to top right, #d4764a, #ee5533);
+    border-radius: 50% 50% 50% 30%;
+    transform: rotate(25deg);
+    animation: flame-side-r 0.5s ease-in-out infinite alternate;
+  }
+
+  /* Eyes */
+  .calc-eyes {
+    position: absolute;
+    bottom: 42%;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 18%;
+    width: 50%;
+    justify-content: center;
+  }
+  .calcifer.small .calc-eyes { gap: 14%; }
+  .calc-eye {
+    width: 22%;
+    aspect-ratio: 1;
+    background: #1a0a00;
+    border-radius: 50%;
+    position: relative;
+  }
+  .calc-eye-shine {
+    position: absolute;
+    top: 15%;
+    right: 15%;
+    width: 35%;
+    aspect-ratio: 1;
+    background: #fff;
+    border-radius: 50%;
+  }
+  .calc-eye.closed {
+    height: 2px;
+    border-radius: 1px;
+    aspect-ratio: auto;
+    width: 22%;
+  }
+  .calc-eye.closed .calc-eye-shine { display: none; }
+
+  /* Mouth */
+  .calc-mouth {
+    position: absolute;
+    bottom: 28%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 18%;
+    height: 3px;
+    background: #1a0a00;
+    border-radius: 0 0 50% 50%;
+  }
+  .calc-mouth.open {
+    height: 12%;
+    width: 20%;
+    border-radius: 50%;
+    background: #1a0a00;
+  }
+  .calcifer.small .calc-mouth { height: 2px; }
+  .calcifer.small .calc-mouth.open { height: 10%; }
+
+  /* Log */
+  .calc-log {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 80%;
+    height: 14%;
+    background: linear-gradient(to bottom, #8B6914, #6b4e12, #553d0e);
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  }
+  .calc-log::before {
+    content: '';
+    position: absolute;
+    left: 8%;
+    top: 25%;
+    width: 12%;
+    height: 50%;
+    background: #553d0e;
+    border-radius: 50%;
+  }
+  .calc-log::after {
+    content: '';
+    position: absolute;
+    right: 15%;
+    top: 30%;
+    width: 8%;
+    height: 40%;
+    background: #553d0e;
+    border-radius: 50%;
+  }
+
+  /* Efficiency Aura */
+  .calc-aura {
+    position: absolute;
+    inset: -10%;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(224,136,80,0.15) 0%, transparent 70%);
+    pointer-events: none;
+    transition: opacity 0.5s;
+  }
+  .calc-aura.bright {
+    background: radial-gradient(circle, rgba(238,85,51,0.3) 0%, rgba(224,136,80,0.15) 40%, transparent 70%);
+  }
+
+  /* Embers */
+  .calc-embers {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: visible;
+  }
+  .ember {
+    position: absolute;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: #ee5533;
+    animation: ember-rise linear infinite;
+    opacity: 0;
+  }
+  .calcifer.small .ember { width: 2px; height: 2px; }
+  @keyframes ember-rise {
+    0% { opacity: 0; transform: translateY(0) translateX(0); }
+    10% { opacity: 1; }
+    80% { opacity: 0.5; }
+    100% { opacity: 0; transform: translateY(-60px) translateX(var(--drift)); }
+  }
+  .calcifer.small .ember { animation-name: ember-rise-small; }
+  @keyframes ember-rise-small {
+    0% { opacity: 0; transform: translateY(0) translateX(0); }
+    10% { opacity: 1; }
+    80% { opacity: 0.3; }
+    100% { opacity: 0; transform: translateY(-20px) translateX(var(--drift)); }
+  }
+
+  /* ZZZ particles for sleep */
+  .zzz {
+    position: absolute;
+    font-size: 12px;
+    color: #e0af68;
+    opacity: 0;
+    animation: zzz-float 2.5s ease-in-out infinite;
+  }
+  .calcifer.small .zzz { font-size: 8px; }
+  @keyframes zzz-float {
+    0% { opacity: 0; transform: translate(0, 0) scale(0.5); }
+    30% { opacity: 0.8; }
+    100% { opacity: 0; transform: translate(15px, -30px) scale(1.2); }
+  }
+
+  /* Calcifer Animations */
+  @keyframes calcifer-idle {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    25% { transform: translateY(-2px) rotate(-0.5deg); }
+    75% { transform: translateY(1px) rotate(0.5deg); }
+  }
+  @keyframes flame-flicker {
+    0% { transform: translateX(-50%) scaleY(1) scaleX(1); }
+    100% { transform: translateX(-50%) scaleY(1.15) scaleX(0.9); }
+  }
+  @keyframes flame-side-l {
+    0% { transform: rotate(-25deg) scale(1); }
+    100% { transform: rotate(-35deg) scale(0.85); }
+  }
+  @keyframes flame-side-r {
+    0% { transform: rotate(25deg) scale(1); }
+    100% { transform: rotate(35deg) scale(0.85); }
+  }
+
+  /* Jump animation */
+  .calcifer.anim-jump {
+    animation: calcifer-jump 0.5s ease-out;
+  }
+  @keyframes calcifer-jump {
+    0% { transform: translateY(0); }
+    30% { transform: translateY(-18px); }
+    50% { transform: translateY(-20px); }
+    70% { transform: translateY(-5px); }
+    85% { transform: translateY(-8px); }
+    100% { transform: translateY(0); }
+  }
+
+  /* Shake animation */
+  .calcifer.anim-shake {
+    animation: calcifer-shake 0.4s ease-in-out;
+  }
+  @keyframes calcifer-shake {
+    0%, 100% { transform: translateX(0); }
+    15% { transform: translateX(-4px); }
+    30% { transform: translateX(4px); }
+    45% { transform: translateX(-3px); }
+    60% { transform: translateX(3px); }
+    75% { transform: translateX(-2px); }
+    90% { transform: translateX(2px); }
+  }
+
+  /* Flare animation */
+  .calcifer.anim-flare .calc-body {
+    box-shadow: 0 0 30px 12px rgba(238,85,51,0.5), inset 0 -8px 12px rgba(192,82,46,0.4);
+    background: radial-gradient(ellipse at 50% 60%, #f0a060 0%, #e08850 40%, #d4764a 100%);
+  }
+  .calcifer.anim-flare .calc-flame-top {
+    height: 42%;
+    background: linear-gradient(to top, #f0a060, #ff6644 60%, #ff4422 100%);
+  }
+
+  /* Sleep animation */
+  .calcifer.anim-sleep {
+    animation: calcifer-sleep 3s ease-in-out infinite;
+  }
+  @keyframes calcifer-sleep {
+    0%, 100% { transform: translateY(2px) scale(0.95); }
+    50% { transform: translateY(4px) scale(0.93); }
+  }
+  .calcifer.anim-sleep .calc-body {
+    box-shadow: 0 0 10px 3px rgba(224,136,80,0.15);
+    filter: brightness(0.7);
+  }
+
+  /* Dance animation */
+  .calcifer.anim-dance {
+    animation: calcifer-dance 0.6s ease-in-out infinite;
+  }
+  @keyframes calcifer-dance {
+    0%, 100% { transform: translateX(0) translateY(0) rotate(0deg); }
+    25% { transform: translateX(-5px) translateY(-3px) rotate(-5deg); }
+    50% { transform: translateX(0) translateY(0) rotate(0deg); }
+    75% { transform: translateX(5px) translateY(-3px) rotate(5deg); }
+  }
+
+  /* Particle burst on feed */
+  .feed-burst {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .feed-particle {
+    position: absolute;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    animation: feed-pop 0.6s ease-out forwards;
+  }
+  @keyframes feed-pop {
+    0% { opacity: 1; transform: translate(0, 0) scale(1); }
+    100% { opacity: 0; transform: translate(var(--tx), var(--ty)) scale(0.3); }
+  }
+
+  /* Omnibar */
+  .omnibar-wrap { width: 100%; max-width: 680px; margin-top: 32px; position: relative; }
+  .omnibar { background: #2a2a2a; border: 1px solid #333; border-radius: 16px; padding: 14px 18px; display: flex; align-items: center; gap: 12px; }
+  .omnibar:focus-within { border-color: #10a37f; box-shadow: 0 0 0 3px #10a37f22; }
+  .omnibar input { background: none; border: none; color: #e0e0e0; font-size: 15px; flex: 1; outline: none; font-family: inherit; }
+  .omnibar input::placeholder { color: #666; }
+  .omnibar-send { width: 32px; height: 32px; border-radius: 8px; background: #10a37f; border: none; color: #fff; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .omnibar-send:hover { background: #0d8c6c; }
+  .omnibar-key { background: #333; color: #666; font-size: 10px; padding: 3px 7px; border-radius: 4px; }
+
+  /* Inline response */
+  .inline-response { display: none; background: #1e1e1e; border: 1px solid #2a2a2a; border-radius: 12px; margin-top: 8px; padding: 16px 18px; max-width: 680px; width: 100%; box-shadow: 0 8px 24px rgba(0,0,0,0.3); animation: fadeUp 0.2s ease; }
+  .inline-response.visible { display: block; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .ir-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .ir-avatar { width: 22px; height: 22px; flex-shrink: 0; }
+  .ir-body { font-size: 13px; line-height: 1.6; color: #ccc; }
+  .ir-body p { margin-bottom: 6px; }
+  .ir-actions { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  .ir-expand { font-size: 11px; color: #10a37f; cursor: pointer; margin-left: auto; }
+  .ir-expand:hover { text-decoration: underline; }
+
+  .desk-suggestions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; justify-content: center; }
+  .desk-sug { padding: 8px 16px; background: #1e1e1e; border: 1px solid #333; border-radius: 12px; font-size: 12px; color: #999; cursor: pointer; }
+  .desk-sug:hover { border-color: #10a37f; color: #e0e0e0; }
+  .desk-quick-apps { display: flex; gap: 16px; margin-top: 40px; }
+  .desk-qapp { width: 56px; text-align: center; cursor: pointer; padding: 8px 4px; border-radius: 10px; }
+  .desk-qapp:hover { background: #2a2a2a; }
+  .desk-qapp-icon { font-size: 28px; margin-bottom: 4px; }
+  .desk-qapp-label { font-size: 9px; color: #666; }
+
+  /* Taskbar */
+  .taskbar { height: 48px; background: #171717; border-top: 1px solid #2a2a2a; display: flex; align-items: center; padding: 0 8px; flex-shrink: 0; z-index: 600; }
+  .tb-start { width: 40px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; }
+  .tb-start:hover { background: #2a2a2a; }
+  .tb-start svg { width: 20px; height: 20px; fill: #999; }
+  .tb-start:hover svg { fill: #fff; }
+  .tb-calcifer { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 6px; cursor: pointer; margin-left: 4px; position: relative; }
+  .tb-calcifer:hover { background: #2a2a2a; }
+  .tb-sep { width: 1px; height: 24px; background: #2a2a2a; margin: 0 8px; }
+  .tb-apps { display: flex; gap: 2px; flex: 1; overflow-x: auto; }
+  .tb-app { height: 36px; padding: 0 12px; display: flex; align-items: center; gap: 6px; border-radius: 6px; cursor: pointer; font-size: 12px; color: #999; white-space: nowrap; position: relative; }
+  .tb-app:hover { background: #2a2a2a; color: #e0e0e0; }
+  .tb-app.active { background: #2a2a2a; color: #fff; }
+  .tb-app.active::after { content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%); width: 16px; height: 3px; background: #10a37f; border-radius: 2px; }
+  .tb-right { display: flex; align-items: center; gap: 12px; padding-right: 8px; }
+  .tb-systray { font-size: 14px; color: #666; cursor: pointer; padding: 4px; border-radius: 4px; position: relative; }
+  .tb-systray:hover { color: #999; background: #2a2a2a; }
+  .notif-count { position: absolute; top: -2px; right: -4px; background: #f7768e; color: #fff; font-size: 8px; width: 14px; height: 14px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+  .tb-clock { font-size: 12px; color: #999; text-align: right; line-height: 1.3; cursor: pointer; }
+
+  /* Calcifer Status Panel */
+  .calcifer-panel {
+    position: fixed;
+    bottom: 56px;
+    left: 52px;
+    width: 340px;
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 12px;
+    box-shadow: 0 -8px 32px rgba(0,0,0,0.5);
+    z-index: 1000;
+    display: none;
+    overflow: hidden;
+  }
+  .calcifer-panel.open { display: block; }
+  .cp-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .cp-header-name { font-size: 14px; font-weight: 500; color: #e08850; }
+  .cp-header-mood { font-size: 11px; color: #999; margin-left: auto; }
+  .cp-section { padding: 12px 16px; }
+  .cp-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 8px; }
+  .cp-token-bar {
+    height: 8px;
+    background: #2a2a2a;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 6px;
+    margin-bottom: 4px;
+  }
+  .cp-token-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #c0522e, #e08850, #ee5533);
+    border-radius: 4px;
+    transition: width 0.5s ease;
+  }
+  .cp-token-label { font-size: 12px; color: #e08850; }
+  .cp-token-sub { font-size: 10px; color: #666; }
+  .cp-mood-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 12px; color: #ccc; }
+  .cp-mood-dot { width: 8px; height: 8px; border-radius: 50%; }
+  .cp-activity { list-style: none; padding: 0; }
+  .cp-activity li {
+    font-size: 11px;
+    color: #999;
+    padding: 4px 0;
+    border-bottom: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .cp-activity li:last-child { border: none; }
+  .cp-activity-dot { width: 5px; height: 5px; border-radius: 50%; background: #10a37f; flex-shrink: 0; }
+  .cp-aura-wrap { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+  .cp-aura-bar {
+    flex: 1;
+    height: 6px;
+    background: #2a2a2a;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .cp-aura-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #d4764a, #ee5533);
+    border-radius: 3px;
+    transition: width 0.5s ease;
+  }
+  .cp-aura-val { font-size: 12px; color: #ee5533; min-width: 32px; text-align: right; }
+
+  /* Start Menu */
+  .start-menu { position: fixed; bottom: 56px; left: 8px; width: 380px; background: #1e1e1e; border: 1px solid #333; border-radius: 12px; box-shadow: 0 -8px 32px rgba(0,0,0,0.5); z-index: 1000; display: none; overflow: hidden; }
+  .start-menu.open { display: block; }
+  .sm-search { padding: 12px 16px; border-bottom: 1px solid #2a2a2a; }
+  .sm-search input { width: 100%; background: #2a2a2a; border: 1px solid #333; border-radius: 8px; padding: 10px 14px; color: #e0e0e0; font-size: 13px; outline: none; font-family: inherit; }
+  .sm-search input:focus { border-color: #10a37f; }
+  .sm-section { padding: 8px; }
+  .sm-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; padding: 8px 8px 4px; }
+  .sm-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .sm-app { display: flex; flex-direction: column; align-items: center; padding: 12px 8px; border-radius: 8px; cursor: pointer; }
+  .sm-app:hover { background: #2a2a2a; }
+  .sm-app-icon { font-size: 24px; margin-bottom: 4px; }
+  .sm-app-name { font-size: 10px; color: #999; }
+  .sm-footer { padding: 8px 12px; border-top: 1px solid #2a2a2a; display: flex; justify-content: space-between; }
+  .sm-footer-btn { padding: 6px 10px; border-radius: 6px; font-size: 11px; color: #999; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .sm-footer-btn:hover { background: #2a2a2a; color: #e0e0e0; }
+
+  /* Notification Center */
+  .notif-center { position: fixed; bottom: 56px; right: 8px; width: 380px; max-height: 500px; background: #1e1e1e; border: 1px solid #333; border-radius: 12px; box-shadow: 0 -8px 32px rgba(0,0,0,0.5); z-index: 1000; display: none; overflow: hidden; }
+  .notif-center.open { display: flex; flex-direction: column; }
+  .nc-header { padding: 14px 16px; border-bottom: 1px solid #2a2a2a; display: flex; justify-content: space-between; align-items: center; }
+  .nc-title { font-size: 14px; font-weight: 500; }
+  .nc-clear { font-size: 11px; color: #10a37f; cursor: pointer; }
+  .nc-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .nc-item { padding: 12px; border-radius: 8px; margin-bottom: 4px; cursor: pointer; border-left: 3px solid transparent; }
+  .nc-item:hover { background: #2a2a2a; }
+  .nc-item.warn { border-left-color: #e0af68; }
+  .nc-item.info { border-left-color: #10a37f; }
+  .nc-item.alert { border-left-color: #f7768e; }
+  .nc-item-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .nc-item-source { font-size: 10px; color: #666; }
+  .nc-item-time { font-size: 10px; color: #555; margin-left: auto; }
+  .nc-item-title { font-size: 12px; font-weight: 500; }
+  .nc-item-body { font-size: 11px; color: #999; margin-top: 2px; line-height: 1.4; }
+  .nc-item-depth { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #333; }
+  .nc-item-depth.expanded { display: block; }
+  .nc-depth-level { font-size: 11px; color: #999; padding: 4px 0; cursor: pointer; display: flex; align-items: center; gap: 6px; }
+  .nc-depth-level:hover { color: #10a37f; }
+  .depth-tag { font-size: 9px; background: #333; color: #666; padding: 1px 5px; border-radius: 3px; }
+  .nc-depth-detail { display: none; background: #171717; border-radius: 6px; padding: 8px 10px; margin: 4px 0 4px 20px; font-family: monospace; font-size: 11px; color: #999; white-space: pre-wrap; }
+  .nc-depth-detail.show { display: block; }
+  .nc-calcifer-icon { width: 16px; height: 16px; display: inline-flex; vertical-align: middle; }
+
+  /* Windows */
+  .window { position: absolute; background: #1e1e1e; border: 1px solid #2a2a2a; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); display: none; overflow: hidden; flex-direction: column; }
+  .window.open { display: flex; }
+  .window.maximized { top: 0 !important; left: 0 !important; right: 0 !important; bottom: 48px !important; width: auto !important; height: auto !important; border-radius: 0; border: none; }
+  .window.minimized { display: none !important; }
+  .win-header { height: 40px; background: #171717; border-bottom: 1px solid #2a2a2a; display: flex; align-items: center; padding: 0 12px; cursor: grab; flex-shrink: 0; }
+  .win-header:active { cursor: grabbing; }
+  .win-title { flex: 1; font-size: 12px; color: #999; padding-left: 8px; }
+  .win-controls { display: flex; }
+  .win-ctrl { width: 36px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #999; font-size: 14px; border-radius: 4px; }
+  .win-ctrl:hover { background: #2a2a2a; color: #fff; }
+  .win-ctrl.close:hover { background: #e81123; color: #fff; }
+  .win-body { flex: 1; overflow: hidden; display: flex; }
+
+  /* Chat */
+  .chat-panel { display: flex; flex-direction: column; height: 100%; width: 100%; }
+  .chat-messages { flex: 1; overflow-y: auto; padding: 20px 0; }
+  .chat-msg-wrap { max-width: 680px; margin: 0 auto; padding: 0 24px; }
+  .chat-msg { padding: 10px 0; display: flex; gap: 12px; }
+  .chat-msg-avatar { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; margin-top: 2px; font-weight: 600; }
+  .chat-msg-avatar.user { background: linear-gradient(135deg, #7c3aed, #a855f7); color: #fff; }
+  .chat-msg-avatar.ai { background: none; padding: 0; overflow: visible; }
+  .chat-msg-body { flex: 1; font-size: 14px; line-height: 1.6; color: #d1d1d1; }
+  .chat-msg-body p { margin-bottom: 8px; }
+  .chat-msg-body code { background: #2a2a2a; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+
+  .action-card { background: #2a2a2a; border: 1px solid #333; border-radius: 10px; padding: 14px 16px; margin: 10px 0; }
+  .action-card-title { font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+  .action-card-desc { font-size: 12px; color: #999; line-height: 1.5; }
+
+  .depth-card { background: #2a2a2a; border: 1px solid #333; border-radius: 8px; margin: 8px 0; overflow: hidden; }
+  .depth-header { padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .depth-header:hover { background: #333; }
+  .depth-arrow { color: #666; font-size: 10px; margin-left: auto; transition: transform 0.2s; }
+  .depth-body { display: none; padding: 0 14px 12px; font-size: 12px; color: #999; line-height: 1.5; }
+  .depth-body.open { display: block; }
+  .depth-body pre { background: #171717; border-radius: 6px; padding: 8px 10px; font-family: monospace; font-size: 11px; margin: 6px 0; overflow-x: auto; white-space: pre; }
+  .drill-link { color: #10a37f; cursor: pointer; font-size: 11px; }
+  .drill-link:hover { text-decoration: underline; }
+
+  .action-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #10a37f; color: #fff; border: none; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit; margin-top: 4px; }
+  .action-btn:hover { background: #0d8c6c; }
+  .action-btn.outline { background: none; border: 1px solid #333; color: #999; }
+  .action-btn.outline:hover { border-color: #10a37f; color: #e0e0e0; }
+
+  .chat-input-area { padding: 12px 24px 16px; border-top: 1px solid #2a2a2a; }
+  .chat-input-wrap { max-width: 680px; margin: 0 auto; }
+  .chat-input { background: #2a2a2a; border: 1px solid #333; border-radius: 14px; padding: 12px 16px; display: flex; align-items: center; gap: 10px; }
+  .chat-input:focus-within { border-color: #10a37f; }
+  .chat-input input { background: none; border: none; color: #e0e0e0; font-size: 14px; flex: 1; outline: none; font-family: inherit; }
+  .chat-input input::placeholder { color: #666; }
+  .chat-ctx { font-size: 10px; color: #10a37f; background: #10a37f18; padding: 3px 8px; border-radius: 4px; margin-bottom: 6px; }
+
+  /* Settings */
+  .settings-layout { display: flex; height: 100%; width: 100%; }
+  .settings-sidebar { width: 200px; background: #171717; border-right: 1px solid #2a2a2a; padding: 8px 0; overflow-y: auto; flex-shrink: 0; }
+  .ss-item { padding: 9px 16px; font-size: 12px; color: #999; cursor: pointer; display: flex; align-items: center; gap: 10px; }
+  .ss-item:hover { background: #212121; color: #e0e0e0; }
+  .ss-item.active { background: #2a2a2a; color: #fff; }
+  .settings-main { flex: 1; padding: 20px 24px; overflow-y: auto; }
+  .settings-summary { background: #2a2a2a; border-radius: 10px; padding: 14px 16px; margin-bottom: 20px; display: flex; align-items: center; gap: 12px; font-size: 13px; line-height: 1.5; }
+  .s-section { margin-bottom: 20px; }
+  .s-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 8px; }
+  .s-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 14px; background: #2a2a2a; border-radius: 8px; margin-bottom: 4px; }
+  .s-row:hover { background: #333; }
+  .s-row-info { flex: 1; }
+  .s-row-title { font-size: 13px; display: flex; align-items: center; gap: 8px; }
+  .s-row-desc { font-size: 11px; color: #666; margin-top: 2px; }
+  .s-row-history { font-size: 10px; color: #555; margin-top: 2px; cursor: pointer; }
+  .s-row-history:hover { color: #10a37f; }
+  .guardian-badge { font-size: 9px; padding: 2px 6px; border-radius: 4px; background: #10a37f22; color: #10a37f; }
+  .guardian-badge.off { background: #33333366; color: #666; }
+  .toggle { width: 38px; height: 20px; background: #444; border-radius: 10px; position: relative; cursor: pointer; flex-shrink: 0; }
+  .toggle.on { background: #10a37f; }
+  .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: left 0.2s; }
+  .toggle.on::after { left: 20px; }
+  .slider-wrap { display: flex; align-items: center; gap: 10px; }
+  .slider { -webkit-appearance: none; width: 120px; height: 4px; background: #444; border-radius: 2px; outline: none; }
+  .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; background: #10a37f; border-radius: 50%; cursor: pointer; }
+  .slider-val { font-size: 12px; color: #10a37f; min-width: 36px; text-align: right; }
+  .dropdown { background: #444; color: #e0e0e0; border: none; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-family: inherit; cursor: pointer; }
+
+  /* Guardian */
+  .g-card { background: #2a2a2a; border-radius: 8px; padding: 14px 16px; margin-bottom: 8px; border-left: 3px solid transparent; }
+  .g-card.drifted { border-left-color: #f7768e; }
+  .g-card.protected { border-left-color: #10a37f; }
+  .g-card-header { display: flex; justify-content: space-between; align-items: center; }
+  .g-card-title { font-size: 13px; font-weight: 500; }
+  .g-status { font-size: 10px; padding: 3px 8px; border-radius: 4px; }
+  .g-status.drift { background: #f7768e22; color: #f7768e; }
+  .g-status.ok { background: #10a37f22; color: #10a37f; }
+  .g-card-body { font-size: 12px; color: #999; margin-top: 6px; line-height: 1.5; }
+  .g-diff { background: #171717; border-radius: 6px; padding: 8px 12px; font-family: monospace; font-size: 11px; margin-top: 8px; }
+  .g-diff .del { color: #f7768e; }
+  .g-diff .add { color: #10a37f; }
+  .g-diff .meta { color: #555; }
+  .g-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+  /* App manager */
+  .app-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; cursor: pointer; }
+  .app-row:hover { background: #2a2a2a; }
+  .app-row.selected { background: #2a2a2a; outline: 1px solid #10a37f44; }
+  .ar-icon { font-size: 22px; width: 32px; text-align: center; }
+  .ar-info { flex: 1; }
+  .ar-name { font-size: 13px; font-weight: 500; }
+  .ar-meta { font-size: 11px; color: #666; }
+  .ar-size { font-size: 12px; color: #999; text-align: right; }
+  .ar-residue { font-size: 10px; color: #e0af68; text-align: right; margin-right: 8px; }
+  .up-panel { background: #2a2a2a; border-radius: 10px; padding: 16px 18px; margin-top: 14px; display: none; }
+  .up-panel.visible { display: block; }
+  .up-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 12px; border-bottom: 1px solid #33333344; }
+  .up-label { color: #999; }
+  .up-val { color: #e0e0e0; }
+  .up-val.warn { color: #e0af68; }
+  .up-files { background: #171717; border-radius: 6px; padding: 10px 14px; font-family: monospace; font-size: 11px; max-height: 120px; overflow-y: auto; color: #999; margin: 12px 0; }
+  .up-files .dir { color: #10a37f; }
+  .up-files .sz { color: #555; float: right; }
+
+  /* Spotlight */
+  .spotlight { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(6px); z-index: 2000; display: none; align-items: flex-start; justify-content: center; padding-top: 140px; }
+  .spotlight.open { display: flex; }
+  .spot-box { width: 580px; background: #1e1e1e; border: 1px solid #333; border-radius: 14px; box-shadow: 0 16px 48px rgba(0,0,0,0.5); overflow: hidden; }
+  .spot-input { display: flex; align-items: center; padding: 14px 18px; gap: 12px; border-bottom: 1px solid #2a2a2a; }
+  .spot-input input { background: none; border: none; color: #e0e0e0; font-size: 16px; flex: 1; outline: none; font-family: inherit; }
+  .spot-input input::placeholder { color: #555; }
+  .spot-results { max-height: 360px; overflow-y: auto; padding: 6px; }
+  .spot-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px; cursor: pointer; }
+  .spot-item:hover, .spot-item.focused { background: #2a2a2a; }
+  .spot-item-icon { font-size: 18px; width: 28px; text-align: center; }
+  .spot-item-info { flex: 1; }
+  .spot-item-title { font-size: 13px; }
+  .spot-item-desc { font-size: 11px; color: #666; }
+  .spot-hint { padding: 8px 18px; font-size: 10px; color: #555; border-top: 1px solid #2a2a2a; display: flex; gap: 16px; }
+
+  /* Toast */
+  .toast { position: fixed; top: 16px; right: 16px; background: #2a2a2a; border: 1px solid #333; border-radius: 10px; padding: 14px 18px; min-width: 320px; max-width: 400px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 3000; display: none; animation: toastIn 0.3s ease; }
+  .toast.show { display: block; }
+  @keyframes toastIn { from { transform: translateY(-20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .toast-close { position: absolute; top: 8px; right: 10px; cursor: pointer; color: #666; font-size: 14px; }
+  .toast-close:hover { color: #fff; }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar" id="sidebar">
+    <div class="sb-header"><button class="sb-toggle" onclick="toggleSidebar()">&#9776;</button><button class="sb-toggle" onclick="goHome()" style="font-size:18px;">&#43;</button></div>
+    <div class="sb-section-title">Open</div>
+    <div class="sb-list" id="sb-open-list"></div>
+    <div class="sb-divider"></div>
+    <div class="sb-section-title">Recent</div>
+    <div class="sb-list"><div class="sb-item" onclick="startChat('Fix display scaling issue')"><span class="sb-item-icon">&#128172;</span><span class="sb-item-text">Fix display scaling issue</span></div><div class="sb-item" onclick="startChat('Install Docker on server')"><span class="sb-item-icon">&#128172;</span><span class="sb-item-text">Install Docker on server</span></div><div class="sb-item" onclick="startChat('Why is my fan so loud?')"><span class="sb-item-icon">&#9002;</span><span class="sb-item-text">Why is my fan so loud?</span></div></div>
+    <div class="sb-footer"><div class="sb-user"><div class="sb-avatar">B</div><span style="font-size:13px;flex:1;">Ben</span><span style="font-size:14px;color:#666;">&#9881;</span></div></div>
+  </div>
+
+  <div class="main" id="main-area">
+    <div class="desktop" id="desktop">
+      <div class="calcifer-home-wrap" onclick="calciferPanel.toggle()">
+        <div class="calcifer medium" id="calcifer-home">
+          <div class="calc-aura" id="calc-home-aura"></div>
+          <div class="calc-embers" id="calc-home-embers"></div>
+          <div class="calc-flame-left"></div>
+          <div class="calc-flame-right"></div>
+          <div class="calc-flame-top"></div>
+          <div class="calc-body"></div>
+          <div class="calc-eyes">
+            <div class="calc-eye" id="calc-home-eye-l"><div class="calc-eye-shine"></div></div>
+            <div class="calc-eye" id="calc-home-eye-r"><div class="calc-eye-shine"></div></div>
+          </div>
+          <div class="calc-mouth" id="calc-home-mouth"></div>
+          <div class="calc-log"></div>
+        </div>
+      </div>
+      <div class="desk-greeting"><h1>What can I help with?</h1><p>Message LLMOS, or type an app name to open it</p></div>
+      <div class="omnibar-wrap">
+        <div class="omnibar"><span style="color:#666;">&#128269;</span><input type="text" id="desk-input" placeholder="Message LLMOS..." onkeydown="if(event.key==='Enter')handleInput(this.value)" autocomplete="off"><span class="omnibar-key">Ctrl+Space</span><button class="omnibar-send" onclick="handleInput(document.getElementById('desk-input').value)">&#9654;</button></div>
+        <div class="inline-response" id="inline-response"></div>
+      </div>
+      <div class="desk-suggestions"><div class="desk-sug" onclick="handleInput('What is my IP address?')">What's my IP?</div><div class="desk-sug" onclick="handleInput('Why is my system slow?')">Why is it slow?</div><div class="desk-sug" onclick="handleInput('facebook')">Open Facebook</div><div class="desk-sug" onclick="handleInput('Uninstall Steam completely')">Uninstall Steam</div></div>
+      <div class="desk-quick-apps"><div class="desk-qapp" onclick="launchApp('settings')"><div class="desk-qapp-icon">&#9881;</div><div class="desk-qapp-label">Settings</div></div><div class="desk-qapp" onclick="launchApp('guardian')"><div class="desk-qapp-icon">&#128737;</div><div class="desk-qapp-label">Guardian</div></div><div class="desk-qapp" onclick="launchApp('apps')"><div class="desk-qapp-icon">&#128230;</div><div class="desk-qapp-label">Apps</div></div><div class="desk-qapp" onclick="launchApp('files')"><div class="desk-qapp-icon">&#128193;</div><div class="desk-qapp-label">Files</div></div><div class="desk-qapp" onclick="launchApp('terminal')"><div class="desk-qapp-icon">&#9002;</div><div class="desk-qapp-label">Terminal</div></div><div class="desk-qapp" onclick="launchApp('browser')"><div class="desk-qapp-icon">&#127760;</div><div class="desk-qapp-label">Browser</div></div></div>
+    </div>
+    <div id="window-container" style="position:absolute;inset:0;bottom:48px;pointer-events:none;overflow:hidden;"></div>
+    <div class="taskbar">
+      <div class="tb-start" onclick="toggleStartMenu()"><svg viewBox="0 0 24 24"><path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z"/></svg></div>
+      <div class="tb-calcifer" id="tb-calcifer" onclick="calciferPanel.toggle()">
+        <div class="calcifer small" id="calcifer-taskbar">
+          <div class="calc-embers" id="calc-tb-embers"></div>
+          <div class="calc-flame-left"></div>
+          <div class="calc-flame-right"></div>
+          <div class="calc-flame-top"></div>
+          <div class="calc-body"></div>
+          <div class="calc-eyes">
+            <div class="calc-eye" id="calc-tb-eye-l"><div class="calc-eye-shine"></div></div>
+            <div class="calc-eye" id="calc-tb-eye-r"><div class="calc-eye-shine"></div></div>
+          </div>
+          <div class="calc-mouth" id="calc-tb-mouth"></div>
+          <div class="calc-log"></div>
+        </div>
+      </div>
+      <div class="tb-sep"></div>
+      <div class="tb-apps" id="tb-apps"></div>
+      <div class="tb-right"><span class="tb-systray" onclick="toggleNotifCenter()">&#128276;<span class="notif-count" id="notif-count">3</span></span><span class="tb-systray">&#128266;</span><span class="tb-systray">&#128246;</span><div class="tb-clock" id="tb-clock"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Calcifer Status Panel -->
+<div class="calcifer-panel" id="calcifer-panel">
+  <div class="cp-header">
+    <div class="calcifer small" style="width:24px;height:28px;pointer-events:none;">
+      <div class="calc-flame-top" style="height:25%;"></div>
+      <div class="calc-body"></div>
+      <div class="calc-eyes" style="bottom:40%;">
+        <div class="calc-eye" style="width:20%;"><div class="calc-eye-shine"></div></div>
+        <div class="calc-eye" style="width:20%;"><div class="calc-eye-shine"></div></div>
+      </div>
+      <div class="calc-log" style="height:12%;"></div>
+    </div>
+    <span class="cp-header-name">Calcifer</span>
+    <span class="cp-header-mood" id="cp-mood-text">Content, well-fed</span>
+  </div>
+  <div class="cp-section">
+    <div class="cp-section-title">Token Savings</div>
+    <div class="cp-token-label">Fed today: <strong id="cp-tokens-saved">12,400</strong> tokens saved</div>
+    <div class="cp-token-bar"><div class="cp-token-fill" id="cp-token-fill" style="width:68%;"></div></div>
+    <div class="cp-token-sub">68% efficiency — <span id="cp-token-detail">8,432 cached, 3,968 compressed</span></div>
+  </div>
+  <div class="cp-section" style="border-top:1px solid #2a2a2a;">
+    <div class="cp-section-title">Current State</div>
+    <div class="cp-mood-row">
+      <div class="cp-mood-dot" id="cp-mood-dot" style="background:#10a37f;"></div>
+      <span id="cp-mood-desc">System healthy. All configs protected. Nothing on fire.</span>
+    </div>
+  </div>
+  <div class="cp-section" style="border-top:1px solid #2a2a2a;">
+    <div class="cp-section-title">Recent Activity</div>
+    <ul class="cp-activity" id="cp-activity">
+      <li><span class="cp-activity-dot"></span>Restored display scaling (2 min ago)</li>
+      <li><span class="cp-activity-dot"></span>Cached 14 file reads (8 min ago)</li>
+      <li><span class="cp-activity-dot"></span>Held back NVIDIA 560 driver (1h ago)</li>
+    </ul>
+  </div>
+  <div class="cp-section" style="border-top:1px solid #2a2a2a;">
+    <div class="cp-section-title">Efficiency Aura</div>
+    <div class="cp-aura-wrap">
+      <div class="cp-aura-bar"><div class="cp-aura-fill" id="cp-aura-fill" style="width:72%;"></div></div>
+      <span class="cp-aura-val" id="cp-aura-val">72%</span>
+    </div>
+  </div>
+</div>
+
+<div class="start-menu" id="start-menu">
+  <div class="sm-search"><input type="text" placeholder="Search apps and settings..." autocomplete="off"></div>
+  <div class="sm-section"><div class="sm-section-title">Pinned</div><div class="sm-grid"><div class="sm-app" onclick="launchApp('settings');closeStartMenu()"><div class="sm-app-icon">&#9881;</div><div class="sm-app-name">Settings</div></div><div class="sm-app" onclick="launchApp('guardian');closeStartMenu()"><div class="sm-app-icon">&#128737;</div><div class="sm-app-name">Guardian</div></div><div class="sm-app" onclick="launchApp('apps');closeStartMenu()"><div class="sm-app-icon">&#128230;</div><div class="sm-app-name">Apps</div></div><div class="sm-app" onclick="launchApp('browser');closeStartMenu()"><div class="sm-app-icon">&#127760;</div><div class="sm-app-name">Browser</div></div><div class="sm-app" onclick="launchApp('files');closeStartMenu()"><div class="sm-app-icon">&#128193;</div><div class="sm-app-name">Files</div></div><div class="sm-app" onclick="launchApp('terminal');closeStartMenu()"><div class="sm-app-icon">&#9002;</div><div class="sm-app-name">Terminal</div></div><div class="sm-app" onclick="launchApp('monitor');closeStartMenu()"><div class="sm-app-icon">&#128200;</div><div class="sm-app-name">Monitor</div></div><div class="sm-app" onclick="launchApp('music');closeStartMenu()"><div class="sm-app-icon">&#127911;</div><div class="sm-app-name">Music</div></div></div></div>
+  <div class="sm-footer"><div class="sm-footer-btn">&#128100; Ben</div><div class="sm-footer-btn">&#9211; Sleep</div><div class="sm-footer-btn" style="color:#f7768e;">&#9211; Shut down</div></div>
+</div>
+
+<div class="notif-center" id="notif-center">
+  <div class="nc-header"><span class="nc-title">Notifications</span><span class="nc-clear" onclick="clearNotifs()">Clear all</span></div>
+  <div class="nc-list" id="nc-list">
+    <div class="nc-item alert" onclick="toggleNCDepth(this)">
+      <div class="nc-item-header"><span class="nc-calcifer-icon"><svg viewBox="0 0 16 16" width="16" height="16"><ellipse cx="8" cy="10" rx="5" ry="4" fill="#d4764a"/><polygon points="8,1 5,8 11,8" fill="#ee5533"/><circle cx="6.5" cy="9.5" r="1" fill="#1a0a00"/><circle cx="9.5" cy="9.5" r="1" fill="#1a0a00"/><rect x="3" y="13" width="10" height="2" rx="1" fill="#6b4e12"/></svg></span><span class="nc-item-source">Config Guardian</span><span class="nc-item-time">2 min ago</span></div>
+      <div class="nc-item-title">Display Scaling was changed</div>
+      <div class="nc-item-body">GNOME 46.1 reset scaling from 150% to 100%. Restored automatically.</div>
+      <div class="nc-item-depth">
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L2</span> What happened <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail">GNOME 46.1 post-install script reset org.gnome.desktop.interface scaling-factor to 1. Config Guardian detected this within 200ms and restored your saved value of 2 (150%).</div>
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L3</span> Config key <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail">dconf: /org/gnome/desktop/interface/scaling-factor
+Old: 2 (your setting)  New: 1 (postinst)  Restored: 2</div>
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L4</span> Journal log <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail">Apr 06 14:32:07 gnome-shell[1842]: scaling-factor changed to 1
+Apr 06 14:32:08 config-guardian[923]: DRIFT detected: 2->1
+Apr 06 14:32:08 config-guardian[923]: RESTORED -> 2
+Apr 06 14:32:08 config-guardian[923]: src: dpkg postinst gnome-shell 46.1</div>
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L5</span> Source code <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail"><span class="drill-link" onclick="launchApp('terminal')">Open: guardian --show-watcher scaling-factor</span></div>
+        <div style="display:flex;gap:8px;margin-top:8px;"><button class="action-btn" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();launchApp('guardian');toggleNotifCenter();">Open Guardian</button></div>
+      </div>
+    </div>
+    <div class="nc-item warn" onclick="toggleNCDepth(this)">
+      <div class="nc-item-header"><span class="nc-calcifer-icon"><svg viewBox="0 0 16 16" width="16" height="16"><ellipse cx="8" cy="10" rx="5" ry="4" fill="#d4764a"/><polygon points="8,1 5,8 11,8" fill="#ee5533"/><circle cx="6.5" cy="9.5" r="1" fill="#1a0a00"/><circle cx="9.5" cy="9.5" r="1" fill="#1a0a00"/><rect x="3" y="13" width="10" height="2" rx="1" fill="#6b4e12"/></svg></span><span class="nc-item-source">System Monitor</span><span class="nc-item-time">18 min ago</span></div>
+      <div class="nc-item-title">Disk full in ~5 days</div>
+      <div class="nc-item-body">At 2.1 GB/day, /home full by Apr 11. Top: ~/.cache (4.2 GB), Steam (1.8 GB/day).</div>
+      <div class="nc-item-depth">
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L2</span> Breakdown <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail">/home: 234/256 GB (91.4%), rate: 2.1 GB/day
+~/.cache/spotify  1.2 GB (offline songs)
+~/Steam           1.8 GB/day (game updates)
+~/.local/Trash    0.4 GB (not emptied)</div>
+        <div style="display:flex;gap:8px;margin-top:8px;"><button class="action-btn" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();launchApp('apps');toggleNotifCenter();">Clean up</button><button class="action-btn outline" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();">Empty trash</button></div>
+      </div>
+    </div>
+    <div class="nc-item info" onclick="toggleNCDepth(this)">
+      <div class="nc-item-header"><span class="nc-calcifer-icon"><svg viewBox="0 0 16 16" width="16" height="16"><ellipse cx="8" cy="10" rx="5" ry="4" fill="#d4764a"/><polygon points="8,1 5,8 11,8" fill="#ee5533"/><circle cx="6.5" cy="9.5" r="1" fill="#1a0a00"/><circle cx="9.5" cy="9.5" r="1" fill="#1a0a00"/><rect x="3" y="13" width="10" height="2" rx="1" fill="#6b4e12"/></svg></span><span class="nc-item-source">Update Watchdog</span><span class="nc-item-time">1h ago</span></div>
+      <div class="nc-item-title">NVIDIA 560 driver held back</div>
+      <div class="nc-item-body">Broke CUDA for 12% of RTX 3070 users. Holding at 555.42 until confirmed fix.</div>
+      <div class="nc-item-depth">
+        <div class="nc-depth-level" onclick="event.stopPropagation();toggleDD(this)"><span class="depth-tag">L2</span> Why held <span style="margin-left:auto;color:#555;">&#9660;</span></div>
+        <div class="nc-depth-detail">LLMOS monitors community reports via Hyphae. 12% of RTX 3070 users on Ubuntu reported CUDA failures after 560.31. Your GPU matches. Auto-update resumes when failure rate drops below 2%.</div>
+        <div style="display:flex;gap:8px;margin-top:8px;"><button class="action-btn outline" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();">Install anyway</button><button class="action-btn outline" style="font-size:11px;padding:5px 12px;" onclick="event.stopPropagation();">Remind tomorrow</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="spotlight" id="spotlight" onclick="if(event.target===this)closeSpotlight()">
+  <div class="spot-box">
+    <div class="spot-input"><span style="font-size:18px;color:#10a37f;">&#128269;</span><input type="text" id="spot-input" placeholder="Search settings, apps, or ask anything..." oninput="onSpotSearch(this.value)" onkeydown="if(event.key==='Enter'){closeSpotlight();handleInput(this.value)}" autocomplete="off"></div>
+    <div class="spot-results" id="spot-results"><div class="spot-item"><span class="spot-item-icon">&#128161;</span><div class="spot-item-info"><div class="spot-item-desc" style="color:#555;">Try: "make text bigger", "open terminal", "what's using my CPU"</div></div></div></div>
+    <div class="spot-hint"><span>&#8593;&#8595; navigate</span><span>Enter to select</span><span>Esc to close</span><span style="margin-left:auto;">Ctrl+Space</span></div>
+  </div>
+</div>
+
+<div class="toast" id="toast">
+  <span class="toast-close" onclick="hideToast()">&#10005;</span>
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+    <svg viewBox="0 0 16 16" width="16" height="16"><ellipse cx="8" cy="10" rx="5" ry="4" fill="#d4764a"/><polygon points="8,1 5,8 11,8" fill="#ee5533"/><circle cx="6.5" cy="9.5" r="1" fill="#1a0a00"/><circle cx="9.5" cy="9.5" r="1" fill="#1a0a00"/><rect x="3" y="13" width="10" height="2" rx="1" fill="#6b4e12"/></svg>
+    <span style="font-size:11px;color:#666;">Config Guardian</span>
+  </div>
+  <div style="font-size:13px;font-weight:500;">Display Scaling restored</div>
+  <div style="font-size:12px;color:#999;margin-top:4px;">They tried to reset your scaling again. Third time this month. I handled it.</div>
+  <div style="display:flex;gap:8px;margin-top:10px;"><button class="action-btn" style="font-size:11px;padding:5px 12px;" onclick="hideToast()">OK</button><button class="action-btn outline" style="font-size:11px;padding:5px 12px;" onclick="toggleNotifCenter();hideToast();">Details</button></div>
+</div>
+
+<script>
+// ===== CALCIFER ENGINE =====
+const calcifer = {
+  state: 'idle', // idle, jump, shake, flare, sleep, dance
+  tokensSaved: 12400,
+  efficiency: 72,
+  mouthOpen: false,
+  eyesClosed: false,
+  blinkTimer: null,
+  activities: [
+    { text: 'Restored display scaling', time: '2 min ago' },
+    { text: 'Cached 14 file reads', time: '8 min ago' },
+    { text: 'Held back NVIDIA 560 driver', time: '1h ago' }
+  ],
+
+  init() {
+    this.spawnEmbers('calc-home-embers', 6);
+    this.spawnEmbers('calc-tb-embers', 3);
+    this.startBlink();
+    this.updateAura();
+  },
+
+  spawnEmbers(containerId, count) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    for (let i = 0; i < count; i++) {
+      this.addEmber(container, count);
+    }
+  },
+
+  addEmber(container, totalCount) {
+    const ember = document.createElement('div');
+    ember.className = 'ember';
+    const delay = Math.random() * 3;
+    const duration = 1.5 + Math.random() * 2;
+    const left = 25 + Math.random() * 50;
+    const drift = (Math.random() - 0.5) * 20;
+    const size = 2 + Math.random() * 2;
+    const colors = ['#ee5533', '#e08850', '#ffaa44', '#ff6644'];
+    ember.style.cssText = `left:${left}%;top:30%;animation-delay:${delay}s;animation-duration:${duration}s;--drift:${drift}px;width:${size}px;height:${size}px;background:${colors[Math.floor(Math.random()*colors.length)]};`;
+    container.appendChild(ember);
+    ember.addEventListener('animationiteration', () => {
+      ember.style.left = (25 + Math.random() * 50) + '%';
+      ember.style.setProperty('--drift', ((Math.random()-0.5)*20)+'px');
+    });
+  },
+
+  startBlink() {
+    const doBlink = () => {
+      if (this.state === 'sleep') return;
+      this.blink();
+      this.blinkTimer = setTimeout(doBlink, 2000 + Math.random() * 5000);
+    };
+    this.blinkTimer = setTimeout(doBlink, 3000);
+  },
+
+  blink() {
+    const eyes = ['calc-home-eye-l','calc-home-eye-r','calc-tb-eye-l','calc-tb-eye-r'];
+    eyes.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.classList.add('closed'); }
+    });
+    setTimeout(() => {
+      eyes.forEach(id => {
+        const el = document.getElementById(id);
+        if (el && this.state !== 'sleep') { el.classList.remove('closed'); }
+      });
+    }, 150);
+  },
+
+  setMouth(open) {
+    this.mouthOpen = open;
+    ['calc-home-mouth','calc-tb-mouth'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('open', open);
+    });
+  },
+
+  animate(type, duration) {
+    const els = document.querySelectorAll('.calcifer');
+    const prevState = this.state;
+    this.state = type;
+
+    if (type === 'sleep') {
+      els.forEach(el => { el.className = el.className.replace(/anim-\S+/g,''); el.classList.add('anim-sleep'); });
+      const eyes = ['calc-home-eye-l','calc-home-eye-r','calc-tb-eye-l','calc-tb-eye-r'];
+      eyes.forEach(id => { const el = document.getElementById(id); if(el) el.classList.add('closed'); });
+      this.setMouth(false);
+      this.addZzz();
+      this.updatePanel();
+      return;
+    }
+
+    els.forEach(el => {
+      el.className = el.className.replace(/anim-\S+/g,'');
+      el.classList.add('anim-' + type);
+    });
+
+    if (type === 'flare') {
+      this.setMouth(true);
+      document.getElementById('calc-home-aura')?.classList.add('bright');
+    }
+
+    const d = duration || {jump:500,shake:400,flare:1500,dance:2000}[type] || 1000;
+    setTimeout(() => {
+      els.forEach(el => { el.className = el.className.replace(/anim-\S+/g,''); });
+      this.state = 'idle';
+      this.setMouth(false);
+      document.getElementById('calc-home-aura')?.classList.remove('bright');
+      this.removeZzz();
+      this.updatePanel();
+    }, d);
+    this.updatePanel();
+  },
+
+  addZzz() {
+    ['calcifer-home','calcifer-taskbar'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      for (let i = 0; i < 3; i++) {
+        const z = document.createElement('div');
+        z.className = 'zzz';
+        z.textContent = 'z';
+        z.style.cssText = `right:0;top:${10+i*15}%;animation-delay:${i*0.8}s;font-size:${10+i*3}px;`;
+        el.appendChild(z);
+      }
+    });
+  },
+
+  removeZzz() {
+    document.querySelectorAll('.zzz').forEach(z => z.remove());
+    const eyes = ['calc-home-eye-l','calc-home-eye-r','calc-tb-eye-l','calc-tb-eye-r'];
+    eyes.forEach(id => { const el = document.getElementById(id); if(el) el.classList.remove('closed'); });
+  },
+
+  feed(amount) {
+    this.tokensSaved += amount;
+    this.efficiency = Math.min(99, this.efficiency + Math.floor(amount / 500));
+    this.animate('jump');
+    this.burstParticles();
+    this.updatePanel();
+  },
+
+  burstParticles() {
+    const targets = ['calcifer-home', 'calcifer-taskbar'];
+    targets.forEach(id => {
+      const parent = document.getElementById(id);
+      if (!parent) return;
+      const burst = document.createElement('div');
+      burst.className = 'feed-burst';
+      for (let i = 0; i < 8; i++) {
+        const p = document.createElement('div');
+        p.className = 'feed-particle';
+        const angle = (i / 8) * Math.PI * 2;
+        const dist = 20 + Math.random() * 15;
+        const tx = Math.cos(angle) * dist;
+        const ty = Math.sin(angle) * dist;
+        const colors = ['#ee5533', '#e08850', '#ffaa44', '#ff6644', '#10a37f'];
+        p.style.cssText = `left:50%;top:40%;--tx:${tx}px;--ty:${ty}px;background:${colors[Math.floor(Math.random()*colors.length)]};`;
+        burst.appendChild(p);
+      }
+      parent.appendChild(burst);
+      setTimeout(() => burst.remove(), 700);
+    });
+  },
+
+  addActivity(text) {
+    const now = 'just now';
+    this.activities.unshift({ text, time: now });
+    if (this.activities.length > 5) this.activities.pop();
+    this.updatePanel();
+  },
+
+  updateAura() {
+    const aura = document.getElementById('calc-home-aura');
+    if (aura) {
+      const intensity = this.efficiency / 100;
+      aura.style.background = `radial-gradient(circle, rgba(224,136,80,${0.1+intensity*0.25}) 0%, transparent 70%)`;
+    }
+  },
+
+  updatePanel() {
+    const moodText = document.getElementById('cp-mood-text');
+    const moodDesc = document.getElementById('cp-mood-desc');
+    const moodDot = document.getElementById('cp-mood-dot');
+    const tokenEl = document.getElementById('cp-tokens-saved');
+    const tokenFill = document.getElementById('cp-token-fill');
+    const auraFill = document.getElementById('cp-aura-fill');
+    const auraVal = document.getElementById('cp-aura-val');
+    const actList = document.getElementById('cp-activity');
+
+    const moods = {
+      idle: { text:'Content, well-fed', desc:'System healthy. All configs protected. Nothing on fire.', color:'#10a37f' },
+      jump: { text:'Satisfied', desc:'Just saved some tokens. Feeling good.', color:'#e08850' },
+      shake: { text:'Frustrated', desc:'Something went wrong. Working on it.', color:'#f7768e' },
+      flare: { text:'Fired up', desc:'Big achievement. Extra flames.', color:'#ee5533' },
+      sleep: { text:'Sleeping', desc:'System idle. Conserving energy.', color:'#666' },
+      dance: { text:'Celebrating', desc:'Milestone reached. Dance time.', color:'#e0af68' }
+    };
+    const m = moods[this.state] || moods.idle;
+    if (moodText) moodText.textContent = m.text;
+    if (moodDesc) moodDesc.textContent = m.desc;
+    if (moodDot) moodDot.style.background = m.color;
+
+    if (tokenEl) tokenEl.textContent = this.tokensSaved.toLocaleString();
+    const pct = Math.min(100, (this.tokensSaved / 20000) * 100);
+    if (tokenFill) tokenFill.style.width = pct + '%';
+    if (auraFill) auraFill.style.width = this.efficiency + '%';
+    if (auraVal) auraVal.textContent = this.efficiency + '%';
+
+    if (actList) {
+      actList.innerHTML = this.activities.slice(0, 3).map(a =>
+        `<li><span class="cp-activity-dot"></span>${a.text} (${a.time})</li>`
+      ).join('');
+    }
+    this.updateAura();
+  }
+};
+
+const calciferPanel = {
+  open: false,
+  toggle() {
+    this.open = !this.open;
+    document.getElementById('calcifer-panel').classList.toggle('open', this.open);
+    closeStartMenu();
+    closeNotifCenter();
+  },
+  close() {
+    this.open = false;
+    document.getElementById('calcifer-panel').classList.remove('open');
+  }
+};
+
+// ===== MINI CALCIFER SVG for chat avatar =====
+function calciferAvatarSVG() {
+  return `<svg viewBox="0 0 26 26" width="26" height="26">
+    <ellipse cx="13" cy="16" rx="8" ry="6" fill="#d4764a"/>
+    <ellipse cx="13" cy="16" rx="8" ry="6" fill="url(#cg1)"/>
+    <polygon points="13,2 8,13 18,13" fill="#ee5533" opacity="0.9"/>
+    <polygon points="5,9 3,14 8,13" fill="#ee5533" opacity="0.6" transform="rotate(-15,5,11)"/>
+    <polygon points="21,9 23,14 18,13" fill="#ee5533" opacity="0.6" transform="rotate(15,21,11)"/>
+    <circle cx="10.5" cy="15" r="1.5" fill="#1a0a00"/>
+    <circle cx="15.5" cy="15" r="1.5" fill="#1a0a00"/>
+    <circle cx="11.2" cy="14.3" r="0.5" fill="#fff"/>
+    <circle cx="16.2" cy="14.3" r="0.5" fill="#fff"/>
+    <line x1="11.5" y1="19" x2="14.5" y2="19" stroke="#1a0a00" stroke-width="0.8" stroke-linecap="round"/>
+    <rect x="5" y="21" width="16" height="3" rx="1.5" fill="#6b4e12"/>
+    <defs><radialGradient id="cg1" cx="50%" cy="40%"><stop offset="0%" stop-color="#e08850"/><stop offset="100%" stop-color="#c0522e"/></radialGradient></defs>
+  </svg>`;
+}
+
+// ===== CORE OS =====
+let openWindows={},topZ=100,activeWinId=null,activeContext=null;
+
+function updateClock(){const n=new Date(),h=n.getHours().toString().padStart(2,'0'),m=n.getMinutes().toString().padStart(2,'0');const mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];document.getElementById('tb-clock').innerHTML=`${h}:${m}<br><span style="font-size:10px">${mo[n.getMonth()]} ${n.getDate()}</span>`;}
+updateClock();setInterval(updateClock,10000);
+
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('collapsed');}
+function updateSidebar(){const l=document.getElementById('sb-open-list');l.innerHTML='';for(const[id,w]of Object.entries(openWindows)){const i=document.createElement('div');i.className='sb-item'+(id===activeWinId?' active':'')+(w.state==='minimized'?' minimized':'');i.innerHTML=`<span class="sb-dot"></span><span class="sb-item-icon">${w.icon}</span><span class="sb-item-text">${w.title}</span><span class="sb-item-close" onclick="event.stopPropagation();closeWindow('${id}')">&#10005;</span>`;i.onclick=()=>focusWindow(id);l.appendChild(i);}}
+function updateTaskbar(){const t=document.getElementById('tb-apps');t.innerHTML='';for(const[id,w]of Object.entries(openWindows)){const e=document.createElement('div');e.className='tb-app'+(id===activeWinId?' active':'');e.innerHTML=`<span>${w.icon}</span> ${w.title}`;e.onclick=()=>id===activeWinId&&w.state!=='minimized'?minimizeWindow(id):focusWindow(id);t.appendChild(e);}}
+
+function createWindow(id,title,icon,content,opts={}){if(openWindows[id]){focusWindow(id);return;}const c=document.getElementById('window-container'),el=document.createElement('div');el.className='window open';el.id='win-'+id;el.style.pointerEvents='auto';if(opts.type==='chat'){el.style.width='40%';el.style.height='100%';el.style.top='0';el.style.right='0';el.style.left='auto';}else{el.style.width=(opts.width||800)+'px';el.style.height=(opts.height||520)+'px';el.style.top=(40+Object.keys(openWindows).length*25)+'px';el.style.left=(60+Object.keys(openWindows).length*25)+'px';}el.style.zIndex=++topZ;el.innerHTML=`<div class="win-header" onmousedown="startDrag(event,'${id}')"><span style="font-size:14px;">${icon}</span><div class="win-title">${title}</div><div class="win-controls"><div class="win-ctrl" onclick="minimizeWindow('${id}')" title="Minimize">&#8211;</div><div class="win-ctrl" onclick="toggleMaximize('${id}')" title="Maximize">&#9634;</div><div class="win-ctrl close" onclick="closeWindow('${id}')" title="Close">&#10005;</div></div></div><div class="win-body">${content}</div>`;el.addEventListener('mousedown',()=>{el.style.zIndex=++topZ;setActive(id);});c.appendChild(el);openWindows[id]={title,icon,state:'normal',el,type:opts.type||'app',context:opts.context||null};setActive(id);document.getElementById('desktop').classList.add('hidden');updateSidebar();updateTaskbar();}
+function setActive(id){activeWinId=id;activeContext=openWindows[id]?.context||{window:openWindows[id]?.title};}
+function closeWindow(id){openWindows[id]?.el.remove();delete openWindows[id];activeWinId=Object.keys(openWindows).pop()||null;if(!Object.keys(openWindows).length)document.getElementById('desktop').classList.remove('hidden');updateSidebar();updateTaskbar();}
+function minimizeWindow(id){const w=openWindows[id];if(!w)return;w.state='minimized';w.el.classList.add('minimized');activeWinId=Object.entries(openWindows).filter(([k,v])=>v.state!=='minimized').pop()?.[0]||null;if(!activeWinId)document.getElementById('desktop').classList.remove('hidden');updateSidebar();updateTaskbar();}
+function focusWindow(id){const w=openWindows[id];if(!w)return;if(w.state==='minimized'){w.state='normal';w.el.classList.remove('minimized');document.getElementById('desktop').classList.add('hidden');}w.el.style.zIndex=++topZ;setActive(id);updateSidebar();updateTaskbar();}
+function toggleMaximize(id){const w=openWindows[id];if(!w)return;w.state=w.state==='maximized'?'normal':'maximized';w.el.classList.toggle('maximized');}
+function goHome(){for(const id of Object.keys(openWindows))minimizeWindow(id);document.getElementById('desktop').classList.remove('hidden');document.getElementById('desk-input').focus();}
+
+let dragId=null,dragOff={};
+function startDrag(e,id){const w=openWindows[id];if(!w||w.state==='maximized')return;dragId=id;dragOff={x:e.clientX-w.el.offsetLeft,y:e.clientY-w.el.offsetTop};document.addEventListener('mousemove',onDrag);document.addEventListener('mouseup',stopDrag);w.el.style.zIndex=++topZ;setActive(id);updateSidebar();updateTaskbar();}
+function onDrag(e){if(!dragId)return;const el=openWindows[dragId].el;el.style.left=(e.clientX-dragOff.x)+'px';el.style.top=(e.clientY-dragOff.y)+'px';}
+function stopDrag(){dragId=null;document.removeEventListener('mousemove',onDrag);document.removeEventListener('mouseup',stopDrag);}
+
+const appWords={settings:['settings','preferences'],guardian:['guardian','config guard','drift'],apps:['apps','app manager','uninstall','programs','software','remove'],browser:['browser','firefox','chrome','web','internet','facebook','youtube','google','reddit','twitter','github'],files:['files','file manager','documents','folder','explorer'],terminal:['terminal','console','shell','bash','command'],monitor:['monitor','system monitor','task manager','cpu','ram']};
+const quickAns={ip:{m:['my ip','ip address'],a:'<p><strong>LAN:</strong> 192.168.0.206<br><strong>Public:</strong> 74.12.xxx.xxx</p>'},time:{m:['what time','current time'],a:()=>`<p>${new Date().toLocaleTimeString()}</p>`},uptime:{m:['uptime','how long running'],a:'<p><strong>4 days, 7 hours, 23 minutes</strong></p>'},disk:{m:['disk space','storage','how much space'],a:'<p><strong>/home:</strong> 234/256 GB (91.4%)<br><strong>/:</strong> 12/64 GB<br>Largest: Steam (48 GB), .cache (4.2 GB)</p>'}};
+
+function handleInput(v){if(!v||!v.trim())return;v=v.trim();const l=v.toLowerCase();for(const[k,q]of Object.entries(quickAns)){if(q.m.some(m=>l.includes(m))){showInline(typeof q.a==='function'?q.a():q.a,v);document.getElementById('desk-input').value='';calcifer.feed(80);return;}}for(const[k,ws]of Object.entries(appWords)){if(ws.some(w=>l.includes(w))){if(['facebook','youtube','google','reddit','twitter','github'].some(s=>l.includes(s)))launchBrowserWith(v);else launchApp(k);document.getElementById('desk-input').value='';hideInline();return;}}hideInline();startChat(v);document.getElementById('desk-input').value='';}
+
+function showInline(html,q){const ir=document.getElementById('inline-response');ir.innerHTML=`<div class="ir-header"><div class="ir-avatar">${calciferAvatarSVG()}</div><span style="font-size:11px;color:#e08850;">Calcifer</span></div><div class="ir-body">${html}</div><div class="ir-actions"><button class="action-btn outline" style="font-size:11px;padding:4px 10px;" onclick="hideInline()">Dismiss</button><span class="ir-expand" onclick="hideInline();startChat('${q.replace(/'/g,"\\'")}')">Open as conversation &#8594;</span></div>`;ir.classList.add('visible');clearTimeout(ir._t);ir._t=setTimeout(()=>ir.classList.remove('visible'),15000);}
+function hideInline(){document.getElementById('inline-response').classList.remove('visible');}
+
+let chatN=0;
+function startChat(msg){chatN++;const id='chat-'+chatN,short=msg.length>28?msg.substring(0,28)+'...':msg,ai=getAI(msg),ctx=activeContext?.window&&activeContext.window!=='Desktop'?`<div class="chat-ctx">Context: ${activeContext.window}</div>`:'';
+calcifer.setMouth(true);
+setTimeout(()=>calcifer.setMouth(false),1500);
+calcifer.feed(200);
+createWindow(id,short,'&#128172;',`<div class="chat-panel"><div class="chat-messages"><div class="chat-msg-wrap"><div class="chat-msg"><div class="chat-msg-avatar user">B</div><div class="chat-msg-body"><p>${esc(msg)}</p></div></div><div class="chat-msg"><div class="chat-msg-avatar ai">${calciferAvatarSVG()}</div><div class="chat-msg-body">${ai}</div></div></div></div><div class="chat-input-area"><div class="chat-input-wrap">${ctx}<div class="chat-input"><input type="text" placeholder="Reply..." onkeydown="if(event.key==='Enter')addMsg(this,'${id}')" autocomplete="off"><button class="omnibar-send" style="width:28px;height:28px;font-size:12px;" onclick="addMsg(this.previousElementSibling,'${id}')">&#9654;</button></div></div></div></div>`,{type:'chat',context:{window:'Chat: '+short}});}
+
+function getAI(msg){const l=msg.toLowerCase(),ctx=activeContext?.window||'';
+if(l.includes('slow')||l.includes('performance')||l.includes('lag'))return`<p>Checking your system...</p><div class="action-card"><div class="action-card-title">&#128200; System Status</div><div class="action-card-desc">CPU: 23% &bull; RAM: 8.2/32 GB &bull; GPU: 45%</div></div><p><strong>Firefox</strong> is the main offender. 47 tabs, 1.8 GB. <strong>Ollama</strong> is running Gemma 4 at 3.2 GB but that's expected.</p><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L2</span> Process table <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>PID   %CPU  %MEM  COMMAND
+1842  4.2   5.6   firefox (47 tabs)
+ 923  2.1  10.0   ollama serve
+3201  1.8   2.8   code
+ 445  1.2   0.7   Xorg</pre><span class="drill-link" onclick="launchApp('monitor')">&#128200; Open System Monitor</span></div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L3</span> Firefox tab memory <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>YouTube (3 tabs)    412 MB
+Reddit               89 MB
+GitHub               67 MB
+Docs/Sheets (8)     234 MB
+Other (33 tabs)     998 MB</pre><button class="action-btn" style="font-size:11px;">Suspend inactive tabs</button></div></div><p>Want me to suspend inactive tabs? Should free about 800 MB.</p><button class="action-btn">Suspend tabs</button> <button class="action-btn outline">Show more</button>`;
+if(l.includes('scaling')||l.includes('display')||l.includes('bigger')||l.includes('text size'))return`<p>Current scaling: <strong>150%</strong>. They tried to reset it again earlier. I caught it.</p><div class="action-card"><div class="action-card-title">&#128424; Display Scaling</div><div class="action-card-desc"><div class="slider-wrap" style="margin-top:8px;"><span style="font-size:12px;color:#999;">100%</span><input type="range" class="slider" min="100" max="200" step="25" value="150" style="width:200px;" oninput="this.nextElementSibling.textContent=this.value+'%'"><span class="slider-val">150%</span><span style="font-size:12px;color:#999;">200%</span></div></div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L3</span> Config key <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>dconf: /org/gnome/desktop/interface/scaling-factor
+Current: 2 (150%)
+Guardian: Protected</pre></div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L4</span> Change history <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>Apr 06 14:32  Drifted (gnome-shell 46.1) -> Restored
+Mar 28 09:15  Set to 150% by user
+Mar 01        Initial: 100%</pre></div></div><p>Config Guardian is protecting this. It won't drift again on my watch.</p><button class="action-btn">Apply</button> <button class="action-btn outline" onclick="launchApp('settings')">Open Settings</button>`;
+if(l.includes('uninstall')||l.includes('remove')||l.includes('steam')||l.includes('clean'))return`<p>Found 3 apps with residual files. Here's the damage:</p><div class="action-card"><div class="action-card-title">&#128465; Residual Files</div><div class="action-card-desc"><strong>Steam</strong> -- 2.4 GB app + 48 GB games + 340 MB leftover gunk<br><strong>Spotify</strong> -- 180 MB + 1.2 GB cache it never cleans<br><strong>GIMP</strong> -- 312 MB + 24 MB orphaned plugins</div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L3</span> Steam file map <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>~/.steam/              config
+~/.local/share/Steam/  48.2 GB
+  steamapps/           47.8 GB (23 games)
+  config/              4 MB
+~/.config/unity3d/     saves (82 MB)
+steam.desktop          MIME handler</pre></div></div><p>Which one are you after?</p><button class="action-btn" onclick="launchApp('apps')">Open App Manager</button> <button class="action-btn outline">Remove Steam (keep games)</button>`;
+if(l.includes('fan')||l.includes('loud')||l.includes('hot')||l.includes('temperature'))return`<p>Your thermals are elevated. I know why.</p><div class="action-card"><div class="action-card-title">&#127777; Thermal Status</div><div class="action-card-desc">CPU: 72C (high) &bull; GPU: 58C (normal) &bull; Fan: 2,400 RPM</div></div><p>Hyphae remembers: fan got loud right after the NVIDIA 560 driver went in on March 30. Clear correlation.</p><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L2</span> Temp history <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>Mar 29  52C  1,200 RPM
+Mar 30  68C  2,100 RPM  <- NVIDIA 560
+Apr 01  71C  2,300 RPM
+Apr 06  72C  2,400 RPM</pre>The Watchdog already held the driver back from further updates.</div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L4</span> sensors output <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>coretemp Package: +72.0C (crit +105.0C)
+  Core 0: +70.0C
+  Core 1: +72.0C
+nvidia-gpu: +58.0C</pre></div></div><p>Roll back to 555? That should drop you 20C.</p><button class="action-btn">Rollback to 555</button> <button class="action-btn outline">Monitor</button>`;
+if(l.includes('docker'))return`<p>Docker's not installed. Takes about 2 minutes and 350 MB.</p><div class="action-card"><div class="action-card-title">&#128011; Docker Install</div><div class="action-card-desc">Docker Engine + Compose. Standard setup.</div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L4</span> Commands <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>sudo apt-get update
+sudo apt-get install ca-certificates curl
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor ...
+sudo apt-get install docker-ce docker-compose-plugin
+sudo usermod -aG docker $USER</pre></div></div><button class="action-btn">Install Docker</button> <button class="action-btn outline">Show steps first</button>`;
+if(l.includes('wifi')||l.includes('network')||l.includes('internet')||l.includes('disconnect'))return`<p>Checked your network. Connection's stable right now, but Hyphae shows 3 drops in the last week.</p><div class="action-card"><div class="action-card-title">&#127760; Network Status</div><div class="action-card-desc">WiFi: connected &bull; Signal: -42 dBm (good) &bull; DNS: 1.1.1.1</div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L2</span> Drop history <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>Apr 04 03:12  Disconnected (driver crash) -> auto-reconnect
+Apr 02 15:44  Disconnected (AP restart?) -> auto-reconnect
+Mar 31 22:08  Disconnected (driver crash) -> auto-reconnect</pre>Pattern: two of three were driver crashes. iwlwifi 6.8.0-107 has known issues.</div></div><p>There's a more stable driver available. Want me to switch?</p><button class="action-btn">Switch driver</button> <button class="action-btn outline">Keep monitoring</button>`;
+const cn=ctx&&ctx!=='Desktop'?`<p style="font-size:12px;color:#10a37f;">Context: <strong>${ctx}</strong></p>`:'';
+return`${cn}<p>Let me look into that.</p><div class="action-card"><div class="action-card-title">Available</div><div class="action-card-desc">&bull; Search settings &bull; Run diagnostics &bull; Open apps &bull; Check Guardian &bull; Search Hyphae</div></div><p>Could you tell me more about what you need?</p>`;}
+
+function togDepth(el){const b=el.nextElementSibling;b.classList.toggle('open');el.querySelector('.depth-arrow').style.transform=b.classList.contains('open')?'rotate(180deg)':'';}
+function addMsg(input,winId){const m=input.value.trim();if(!m)return;input.value='';const w=openWindows[winId]?.el.querySelector('.chat-msg-wrap');if(!w)return;calcifer.setMouth(true);setTimeout(()=>calcifer.setMouth(false),1500);calcifer.feed(150);w.innerHTML+=`<div class="chat-msg"><div class="chat-msg-avatar user">B</div><div class="chat-msg-body"><p>${esc(m)}</p></div></div><div class="chat-msg"><div class="chat-msg-avatar ai">${calciferAvatarSVG()}</div><div class="chat-msg-body">${getAI(m)}</div></div>`;openWindows[winId].el.querySelector('.chat-messages').scrollTop=999999;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+function launchApp(n){closeStartMenu();({settings:launchSettings,guardian:launchGuardian,apps:launchAppManager,browser:launchBrowser,files:launchFiles,terminal:launchTerminal,monitor:launchMonitor}[n]||(()=>createWindow(n,n,'&#128196;',`<div style="display:flex;align-items:center;justify-content:center;height:100%;width:100%;color:#555;">${n} -- coming soon</div>`,{width:600,height:400})))();}
+function launchBrowserWith(q){launchBrowser();setTimeout(()=>{const w=openWindows['browser'];if(w){const u=w.el.querySelector('.browser-url');if(u)u.textContent=q.toLowerCase().includes('facebook')?'facebook.com':q;}},50);}
+
+function launchSettings(){createWindow('settings','Settings','&#9881;',`<div class="settings-layout"><div class="settings-sidebar"><div class="ss-item active"><span>&#128424;</span> Display</div><div class="ss-item"><span>&#127925;</span> Sound</div><div class="ss-item"><span>&#9000;</span> Keyboard</div><div class="ss-item"><span>&#127760;</span> Network</div><div class="ss-item"><span>&#128230;</span> Default Apps</div><div class="ss-item"><span>&#128276;</span> Notifications</div><div class="ss-item"><span>&#128274;</span> Privacy</div></div><div class="settings-main"><div class="settings-summary"><span style="font-size:24px;">&#9989;</span><div><strong style="color:#10a37f;">All good.</strong> 12 configs protected. Scaling restored today. Calcifer is watching.</div></div><div class="s-section"><div class="s-section-title">Display</div><div class="s-row"><div class="s-row-info"><div class="s-row-title">Scaling <span class="guardian-badge">&#128737; Protected</span></div><div class="s-row-desc">Text and UI size</div><div class="s-row-history">Changed 3x this month &#8250;</div></div><div class="slider-wrap"><input type="range" class="slider" min="100" max="200" step="25" value="150" oninput="this.nextElementSibling.textContent=this.value+'%'"><span class="slider-val">150%</span></div></div><div class="s-row"><div class="s-row-info"><div class="s-row-title">Night Light <span class="guardian-badge off">untracked</span></div><div class="s-row-desc">Reduce blue light</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div><div class="s-row"><div class="s-row-info"><div class="s-row-title">Resolution <span class="guardian-badge">&#128737; Protected</span></div></div><select class="dropdown"><option>2560x1440</option><option>1920x1080</option></select></div></div><div class="s-section"><div class="s-section-title">Dock</div><div class="s-row"><div class="s-row-info"><div class="s-row-title">Auto-hide</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div><div class="s-row"><div class="s-row-info"><div class="s-row-title">Auto-hide Delay</div></div><div class="slider-wrap"><input type="range" class="slider" min="0" max="1000" step="100" value="200" oninput="this.nextElementSibling.textContent=this.value+'ms'"><span class="slider-val">200ms</span></div></div></div></div></div>`,{width:780,height:500,context:{window:'Settings (Display)'}});}
+
+function launchGuardian(){createWindow('guardian','Config Guardian','&#128737;',`<div style="display:flex;height:100%;width:100%;"><div style="width:170px;background:#171717;border-right:1px solid #2a2a2a;padding:8px 0;flex-shrink:0;"><div class="ss-item active"><span>&#128737;</span> Overview</div><div class="ss-item"><span>&#9000;</span> Keyboard <span style="margin-left:auto;font-size:9px;padding:2px 6px;border-radius:8px;background:#10a37f22;color:#10a37f;">OK</span></div><div class="ss-item"><span>&#128424;</span> Display <span style="margin-left:auto;font-size:9px;padding:2px 6px;border-radius:8px;background:#f7768e22;color:#f7768e;">drift</span></div><div class="ss-item"><span>&#127925;</span> Audio <span style="margin-left:auto;font-size:9px;padding:2px 6px;border-radius:8px;background:#10a37f22;color:#10a37f;">OK</span></div><div class="ss-item"><span>&#128433;</span> Input <span style="margin-left:auto;font-size:9px;padding:2px 6px;border-radius:8px;background:#f7768e22;color:#f7768e;">drift</span></div></div><div style="flex:1;padding:16px 20px;overflow-y:auto;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;"><div><div style="font-size:15px;font-weight:500;">Config Status</div><div style="font-size:11px;color:#666;">12 tracked &bull; 2 drifted &bull; 10 protected</div></div><button class="action-btn outline" style="font-size:11px;">+ Watch setting</button></div><div class="g-card drifted"><div class="g-card-header"><span class="g-card-title">Display Scaling</span><span class="g-status drift">Drifted</span></div><div class="g-card-body">150% -> 100% by GNOME 46.1. Third time this month.</div><div class="g-diff"><div class="del">- scaling-factor: 2</div><div class="add">+ scaling-factor: 1</div><div class="meta">  src: gnome-shell 46.1 postinst</div></div><div class="depth-card" style="margin-top:8px;"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L4</span> Journal <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>14:32:07 gnome-shell: scaling-factor -> 1
+14:32:08 guardian: DRIFT 2->1, RESTORED -> 2</pre></div></div><div class="depth-card"><div class="depth-header" onclick="togDepth(this)"><span class="depth-tag">L5</span> Hyphae history <span class="depth-arrow">&#9660;</span></div><div class="depth-body"><pre>Apr 06  Drifted by 46.1 -> Restored
+Mar 28  Set to 150% by user
+Mar 01  Initial: 100%</pre><span class="drill-link" onclick="launchApp('terminal')">guardian --history scaling-factor</span></div></div><div class="g-actions"><button class="action-btn" onclick="this.closest('.g-card').className='g-card protected';this.closest('.g-card').querySelector('.g-status').className='g-status ok';this.closest('.g-card').querySelector('.g-status').textContent='Restored';this.closest('.g-actions').innerHTML='<span style=color:#10a37f;font-size:12px>Restored and locked.</span>';calcifer.animate('jump');calcifer.addActivity('Restored display scaling config');">Restore</button><button class="action-btn outline">Accept</button><button class="action-btn outline">Always protect</button></div></div><div class="g-card drifted"><div class="g-card-header"><span class="g-card-title">Wacom Pressure Curve</span><span class="g-status drift">Reset</span></div><div class="g-card-body">Reset to default on reboot. 3rd time.</div><div class="g-actions"><button class="action-btn" onclick="this.closest('.g-card').className='g-card protected';this.closest('.g-card').querySelector('.g-status').className='g-status ok';this.closest('.g-card').querySelector('.g-status').textContent='Locked';this.closest('.g-actions').innerHTML='<span style=color:#10a37f;font-size:12px>Locked.</span>';calcifer.animate('jump');calcifer.addActivity('Locked Wacom pressure curve');">Restore & lock</button></div></div><div class="g-card protected"><div class="g-card-header"><span class="g-card-title">Keyboard (US-Intl)</span><span class="g-status ok">Protected</span></div><div class="g-card-body">XKB locked. Verified 2h ago.</div></div><div class="g-card protected"><div class="g-card-header"><span class="g-card-title">Browser: Firefox</span><span class="g-status ok">Protected</span></div><div class="g-card-body">MIME locked.</div></div><div class="g-card protected"><div class="g-card-header"><span class="g-card-title">PipeWire 48kHz</span><span class="g-status ok">Protected</span></div><div class="g-card-body">No drift.</div></div></div></div>`,{width:760,height:520,context:{window:'Config Guardian'}});}
+
+function launchAppManager(){createWindow('apps','App Manager','&#128230;',`<div style="display:flex;height:100%;width:100%;"><div style="width:150px;background:#171717;border-right:1px solid #2a2a2a;padding:8px 0;flex-shrink:0;"><div class="ss-item active"><span>&#128230;</span> All</div><div class="ss-item"><span>&#11088;</span> Recent</div><div class="ss-item" style="color:#e0af68"><span>&#9888;</span> Residue</div><div class="ss-item"><span>&#128190;</span> Large</div></div><div style="flex:1;padding:16px 20px;overflow-y:auto;"><div style="font-size:11px;color:#666;margin-bottom:8px;">14 apps &bull; 52.8 GB &bull; 3 with residue</div><div class="app-row" onclick="showUn(this,'steam')"><span class="ar-icon">&#127918;</span><div class="ar-info"><div class="ar-name">Steam</div><div class="ar-meta">Valve &bull; Jan 2026</div></div><span class="ar-residue">+340 MB</span><span class="ar-size">50.6 GB</span></div><div class="app-row" onclick="showUn(this,'ff')"><span class="ar-icon">&#127760;</span><div class="ar-info"><div class="ar-name">Firefox</div><div class="ar-meta">System</div></div><span class="ar-residue"></span><span class="ar-size">240 MB</span></div><div class="app-row" onclick="showUn(this,'spot')"><span class="ar-icon">&#127911;</span><div class="ar-info"><div class="ar-name">Spotify</div><div class="ar-meta">Snap</div></div><span class="ar-residue">+1.2 GB</span><span class="ar-size">180 MB</span></div><div class="app-row" onclick="showUn(this,'vsc')"><span class="ar-icon">&#128187;</span><div class="ar-info"><div class="ar-name">VS Code</div><div class="ar-meta">.deb</div></div><span class="ar-residue"></span><span class="ar-size">340 MB</span></div><div class="app-row" onclick="showUn(this,'gimp')"><span class="ar-icon">&#127912;</span><div class="ar-info"><div class="ar-name">GIMP</div><div class="ar-meta">Flatpak</div></div><span class="ar-residue">+24 MB</span><span class="ar-size">312 MB</span></div><div class="up-panel" id="up-panel"><div style="font-size:14px;font-weight:500;margin-bottom:10px;">&#128465; <span id="up-name"></span></div><div id="up-det"></div><div class="up-files" id="up-files"></div><div class="g-actions" id="up-act"></div></div></div></div>`,{width:820,height:540,context:{window:'App Manager'}});}
+const uD={steam:{d:`<div class="up-row"><span class="up-label">App</span><span class="up-val">2.4 GB</span></div><div class="up-row"><span class="up-label">Games</span><span class="up-val warn">48.2 GB</span></div><div class="up-row"><span class="up-label">Config</span><span class="up-val">12 MB</span></div><div class="up-row"><span class="up-label">Cache</span><span class="up-val">328 MB</span></div>`,f:`<div><span class="dir">~/.steam/</span></div><div><span class="dir">~/.local/share/Steam/</span><span class="sz">48 GB</span></div><div><span class="dir">~/.config/unity3d/</span><span class="sz">saves</span></div>`,a:`<button class="action-btn">Remove (keep games)</button><button class="action-btn" style="background:#f7768e">Remove all (50.9 GB)</button>`},spot:{d:`<div class="up-row"><span class="up-label">Snap</span><span class="up-val">180 MB</span></div><div class="up-row"><span class="up-label">Cache</span><span class="up-val warn">1.2 GB</span></div>`,f:`<div><span class="dir">~/snap/spotify/</span></div>`,a:`<button class="action-btn" style="background:#f7768e">Remove all (1.4 GB)</button>`},gimp:{d:`<div class="up-row"><span class="up-label">Flatpak</span><span class="up-val">312 MB</span></div><div class="up-row"><span class="up-label">Plugins</span><span class="up-val">18 MB</span></div>`,f:`<div><span class="dir">~/.config/GIMP/</span></div>`,a:`<button class="action-btn" style="background:#f7768e">Remove all (336 MB)</button>`}};
+function showUn(r,id){document.querySelectorAll('.app-row').forEach(x=>x.classList.remove('selected'));r.classList.add('selected');const p=document.getElementById('up-panel'),d=uD[id];if(d){document.getElementById('up-name').textContent=r.querySelector('.ar-name').textContent;document.getElementById('up-det').innerHTML=d.d;document.getElementById('up-files').innerHTML=d.f;document.getElementById('up-act').innerHTML=d.a;p.classList.add('visible');}else p.classList.remove('visible');}
+
+function launchBrowser(){createWindow('browser','Browser','&#127760;',`<div style="padding:12px;background:#171717;border-bottom:1px solid #2a2a2a;display:flex;gap:8px;align-items:center;"><span style="color:#666;">&#9664;</span><span style="color:#666;">&#9654;</span><span style="color:#666;">&#8635;</span><div class="browser-url" style="flex:1;background:#2a2a2a;border-radius:20px;padding:8px 16px;font-size:13px;color:#999;">llmos://newtab</div></div><div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:calc(100% - 52px);width:100%;color:#666;"><div style="font-size:48px;">&#127760;</div><div style="margin-top:12px;">New Tab</div></div>`,{width:900,height:560,context:{window:'Browser'}});}
+function launchFiles(){createWindow('files','Files','&#128193;',`<div style="display:flex;height:100%;width:100%;"><div style="width:160px;background:#171717;border-right:1px solid #2a2a2a;padding:12px 0;flex-shrink:0;"><div class="ss-item active"><span>&#127968;</span> Home</div><div class="ss-item"><span>&#128196;</span> Documents</div><div class="ss-item"><span>&#128190;</span> Downloads</div></div><div style="flex:1;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;align-content:start;"><div style="text-align:center;padding:12px;border-radius:8px;cursor:pointer;" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''"><div style="font-size:28px;">&#128193;</div><div style="font-size:11px;color:#999;">Documents</div></div><div style="text-align:center;padding:12px;border-radius:8px;cursor:pointer;" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''"><div style="font-size:28px;">&#128247;</div><div style="font-size:11px;color:#999;">Pictures</div></div><div style="text-align:center;padding:12px;border-radius:8px;cursor:pointer;" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''"><div style="font-size:28px;">&#128190;</div><div style="font-size:11px;color:#999;">Downloads</div></div><div style="text-align:center;padding:12px;border-radius:8px;cursor:pointer;" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''"><div style="font-size:28px;">&#128193;</div><div style="font-size:11px;color:#999;">Projects</div></div></div></div>`,{width:700,height:450,context:{window:'Files (/home/ben)'}});}
+function launchTerminal(){createWindow('terminal','Terminal','&#9002;',`<div style="background:#0a0a0a;height:100%;padding:12px;font-family:monospace;font-size:13px;color:#10a37f;width:100%;"><div>LLMOS Terminal v1.0</div><div style="color:#666;">Type commands or natural language. 'help' for info.</div><div style="color:#999;margin-top:4px;font-size:11px;">Tip: plain English -> translated to bash</div><div style="margin-top:12px;"><span style="color:#7c3aed;">ben@llmos</span>:<span style="color:#10a37f;">~</span>$ <span style="animation:blink 1s infinite;">_</span></div></div><style>@keyframes blink{50%{opacity:0}}</style>`,{width:680,height:420,context:{window:'Terminal'}});}
+function launchMonitor(){createWindow('monitor','System Monitor','&#128200;',`<div style="padding:20px;width:100%;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;"><div style="background:#2a2a2a;border-radius:8px;padding:14px;"><div style="font-size:11px;color:#666;text-transform:uppercase;">CPU</div><div style="font-size:24px;font-weight:600;color:#10a37f;">23%</div><div style="height:4px;background:#333;border-radius:2px;margin-top:8px;"><div style="width:23%;height:100%;background:#10a37f;border-radius:2px;"></div></div></div><div style="background:#2a2a2a;border-radius:8px;padding:14px;"><div style="font-size:11px;color:#666;text-transform:uppercase;">Memory</div><div style="font-size:24px;font-weight:600;color:#7c3aed;">8.2/32 GB</div><div style="height:4px;background:#333;border-radius:2px;margin-top:8px;"><div style="width:26%;height:100%;background:#7c3aed;border-radius:2px;"></div></div></div><div style="background:#2a2a2a;border-radius:8px;padding:14px;"><div style="font-size:11px;color:#666;text-transform:uppercase;">GPU</div><div style="font-size:24px;font-weight:600;color:#e0af68;">45%</div><div style="height:4px;background:#333;border-radius:2px;margin-top:8px;"><div style="width:45%;height:100%;background:#e0af68;border-radius:2px;"></div></div></div><div style="background:#2a2a2a;border-radius:8px;padding:14px;"><div style="font-size:11px;color:#666;text-transform:uppercase;">Temp</div><div style="font-size:24px;font-weight:600;color:#f7768e;">72C</div><div style="height:4px;background:#333;border-radius:2px;margin-top:8px;"><div style="width:72%;height:100%;background:#f7768e;border-radius:2px;"></div></div></div></div><div style="font-family:monospace;font-size:11px;color:#999;line-height:1.8;"><div style="display:flex;justify-content:space-between;"><span>firefox (47 tabs)</span><span>4.2% 1.8 GB</span></div><div style="display:flex;justify-content:space-between;"><span>ollama serve</span><span>2.1% 3.2 GB</span></div><div style="display:flex;justify-content:space-between;"><span>code</span><span>1.8% 890 MB</span></div></div><div style="margin-top:16px;padding:10px 14px;background:#2a2a2a;border-radius:8px;font-size:12px;color:#e0af68;">&#9888; Disk: 234/256 GB (91%) -- full in ~5 days</div></div>`,{width:560,height:480,context:{window:'System Monitor'}});}
+
+function toggleStartMenu(){document.getElementById('start-menu').classList.toggle('open');closeNotifCenter();calciferPanel.close();}
+function closeStartMenu(){document.getElementById('start-menu').classList.remove('open');}
+function toggleNotifCenter(){document.getElementById('notif-center').classList.toggle('open');closeStartMenu();calciferPanel.close();}
+function closeNotifCenter(){document.getElementById('notif-center').classList.remove('open');}
+function toggleNCDepth(item){item.querySelector('.nc-item-depth')?.classList.toggle('expanded');}
+function toggleDD(level){level.nextElementSibling?.classList.toggle('show');}
+function clearNotifs(){document.getElementById('nc-list').innerHTML='<div style="padding:40px;text-align:center;color:#555;">All caught up</div>';document.getElementById('notif-count').style.display='none';}
+
+function openSpotlight(){document.getElementById('spotlight').classList.add('open');setTimeout(()=>document.getElementById('spot-input').focus(),50);}
+function closeSpotlight(){document.getElementById('spotlight').classList.remove('open');document.getElementById('spot-input').value='';}
+const spotDB=[{t:'Display Scaling',d:'Display > Scaling',i:'&#128424;',k:['text bigger','scale','dpi','font size','make bigger','too small']},{t:'Auto-hide Delay',d:'Dock delay',i:'&#9881;',k:['dock','pop up','too fast','delay']},{t:'Night Light',d:'Reduce blue light',i:'&#127769;',k:['blue light','night','eye strain']},{t:'Default Browser',d:'Default Apps',i:'&#127760;',k:['browser','default','firefox']},{t:'Notifications',d:'App notifications',i:'&#128276;',k:['notifications','mute','quiet']},{t:'Keyboard Layout',d:'Keyboard',i:'&#9000;',k:['keyboard','layout','remap']},{t:'Dark Mode',d:'Theme',i:'&#127761;',k:['dark','light','theme']},{t:'Terminal',d:'Open Terminal',i:'&#9002;',k:['terminal','shell','bash'],a:'terminal'},{t:'System Monitor',d:'Open Monitor',i:'&#128200;',k:['monitor','cpu','ram','performance'],a:'monitor'},{t:'Files',d:'File Manager',i:'&#128193;',k:['files','folders'],a:'files'}];
+function onSpotSearch(q){const b=document.getElementById('spot-results');if(!q||q.length<2){b.innerHTML='<div class="spot-item"><span class="spot-item-icon">&#128161;</span><div class="spot-item-info"><div class="spot-item-desc" style="color:#555;">Search settings, apps, or ask a question</div></div></div>';return;}q=q.toLowerCase();const m=spotDB.filter(s=>s.t.toLowerCase().includes(q)||s.k.some(k=>k.includes(q))||q.split(' ').every(w=>s.k.some(k=>k.includes(w))||s.t.toLowerCase().includes(w))).slice(0,6);b.innerHTML=m.map((s,i)=>`<div class="spot-item ${i===0?'focused':''}" onclick="closeSpotlight();launchApp('${s.a||'settings'}')"><span class="spot-item-icon">${s.i}</span><div class="spot-item-info"><div class="spot-item-title">${s.t}</div><div class="spot-item-desc">${s.d}</div></div><span style="color:#10a37f;">&#8594;</span></div>`).join('')||'<div class="spot-item"><div class="spot-item-info"><div class="spot-item-desc">No match. Enter to ask LLMOS.</div></div></div>';}
+
+function showToast(){document.getElementById('toast').classList.add('show');calcifer.animate('jump');calcifer.addActivity('Restored display scaling');setTimeout(hideToast,8000);}
+function hideToast(){document.getElementById('toast').classList.remove('show');}
+
+// Keyboard shortcuts
+document.addEventListener('keydown',e=>{if(e.key===' '&&e.ctrlKey){e.preventDefault();document.getElementById('spotlight').classList.contains('open')?closeSpotlight():openSpotlight();}if(e.key==='j'&&e.ctrlKey){e.preventDefault();startChat('');}if(e.key==='Escape'){closeSpotlight();closeStartMenu();closeNotifCenter();calciferPanel.close();hideInline();}if(e.key==='Enter'&&document.getElementById('spotlight').classList.contains('open')){const v=document.getElementById('spot-input').value;if(v){closeSpotlight();handleInput(v);}}});
+document.addEventListener('click',e=>{if(!e.target.closest('.start-menu')&&!e.target.closest('.tb-start'))closeStartMenu();if(!e.target.closest('.notif-center')&&!e.target.closest('.tb-systray'))closeNotifCenter();if(!e.target.closest('.calcifer-panel')&&!e.target.closest('.tb-calcifer')&&!e.target.closest('.calcifer-home-wrap'))calciferPanel.close();});
+
+// Demo: simulated token saves
+let demoSaveInterval = setInterval(() => {
+  if (calcifer.state === 'idle') {
+    calcifer.tokensSaved += Math.floor(Math.random() * 50 + 10);
+    calcifer.updatePanel();
+  }
+}, 15000);
+
+// Demo: Calcifer goes to sleep after 2 min idle, wakes on interaction
+let idleTimer = null;
+function resetIdle() {
+  if (calcifer.state === 'sleep') {
+    calcifer.removeZzz();
+    calcifer.state = 'idle';
+    document.querySelectorAll('.calcifer').forEach(el => { el.className = el.className.replace(/anim-\S+/g,''); });
+    calcifer.updatePanel();
+  }
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => {
+    if (calcifer.state === 'idle') calcifer.animate('sleep');
+  }, 120000);
+}
+document.addEventListener('mousemove', resetIdle);
+document.addEventListener('keydown', resetIdle);
+
+// Init
+calcifer.init();
+setTimeout(showToast, 3000);
+
+// Demo: simulate a shake (error) after 45s
+setTimeout(() => {
+  calcifer.animate('shake');
+  calcifer.addActivity('Detected DNS timeout, flushed cache');
+  setTimeout(() => {
+    calcifer.animate('jump');
+    calcifer.addActivity('DNS resolved after cache flush');
+  }, 2000);
+}, 45000);
+
+// Demo: celebrate 1 minute anniversary
+setTimeout(() => {
+  calcifer.animate('dance', 3000);
+  calcifer.addActivity('1-minute uptime milestone');
+}, 60000);
+</script>
+</body>
+</html>

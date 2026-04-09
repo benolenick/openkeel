@@ -1,0 +1,244 @@
+"""Local LLM client — talks to models running on jagg's GPUs.
+
+Supports llama.cpp server (default) and vLLM OpenAI-compatible API.
+Each observer gets its own model on its own GPU card.
+
+Weary Cartographer: Qwen 3.5 (GPU 1)  — better at structured JSON generation
+Vigilant Pilgrim:   GPT-OSS 20B (GPU 0) — different architecture = different intuitions
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from dataclasses import dataclass
+from typing import Optional
+
+import urllib.request
+import urllib.error
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+@dataclass
+class LLMEndpoint:
+    """Connection info for a local LLM server."""
+    name: str = ""
+    host: str = "127.0.0.1"
+    port: int = 8080
+    model: str = ""
+    api_type: str = "llamacpp"  # llamacpp, vllm, openai_compat
+    max_tokens: int = 512
+    temperature: float = 0.3
+    timeout: int = 180
+
+    @property
+    def base_url(self) -> str:
+        return f"http://{self.host}:{self.port}"
+
+
+# Default endpoints for jagg (backend ports, bypass guardian clean-output)
+CARTOGRAPHER_ENDPOINT = LLMEndpoint(
+    name="Weary Cartographer",
+    port=11444,
+    model="qwen3.5:latest",
+    api_type="ollama",
+)
+
+PILGRIM_ENDPOINT = LLMEndpoint(
+    name="Vigilant Pilgrim",
+    port=11445,
+    model="qwen3:14b",
+    api_type="ollama",
+)
+
+# Overwatch Oracle — 122B MoE on CPU/RAM, no GPU needed
+# Runs on a dedicated ollama instance (port 11446, CPU-only)
+OVERWATCH_ENDPOINT = LLMEndpoint(
+    name="Overwatch Oracle",
+    port=11446,
+    model="qwen3.5:122b-a10b",
+    api_type="ollama",
+    max_tokens=100,       # short answers only
+    temperature=0.2,      # focused, not creative
+    timeout=300,          # 5 min timeout — CPU inference is slow
+)
+
+
+# ---------------------------------------------------------------------------
+# API clients
+# ---------------------------------------------------------------------------
+
+def _llamacpp_completion(
+    endpoint: LLMEndpoint,
+    system_prompt: str,
+    user_prompt: str,
+) -> str:
+    """Send a completion request to a llama.cpp server."""
+    url = f"{endpoint.base_url}/completion"
+    payload = json.dumps({
+        "prompt": f"<|system|>\n{system_prompt}\n<|user|>\n{user_prompt}\n<|assistant|>\n",
+        "n_predict": endpoint.max_tokens,
+        "temperature": endpoint.temperature,
+        "stop": ["<|user|>", "<|system|>"],
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=endpoint.timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            return data.get("content", "")
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        return json.dumps({"error": str(e)})
+
+
+def _openai_compat_completion(
+    endpoint: LLMEndpoint,
+    system_prompt: str,
+    user_prompt: str,
+) -> str:
+    """Send a chat completion to an OpenAI-compatible API (vLLM, etc.)."""
+    url = f"{endpoint.base_url}/v1/chat/completions"
+    payload = json.dumps({
+        "model": endpoint.model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "max_tokens": endpoint.max_tokens,
+        "temperature": endpoint.temperature,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=endpoint.timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            choices = data.get("choices", [])
+            if choices:
+                return choices[0].get("message", {}).get("content", "")
+            return json.dumps({"error": "no choices"})
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        return json.dumps({"error": str(e)})
+
+
+def _ollama_completion(
+    endpoint: LLMEndpoint,
+    system_prompt: str,
+    user_prompt: str,
+) -> str:
+    """Send a generate request to an Ollama server (direct backend port).
+
+    Handles models that put content in 'thinking' instead of 'response'
+    (e.g., gpt-oss, reasoning models).
+    """
+    url = f"{endpoint.base_url}/api/generate"
+    payload = json.dumps({
+        "model": endpoint.model,
+        "prompt": f"{system_prompt}\n\n{user_prompt}",
+        "stream": False,
+        "options": {
+            "temperature": endpoint.temperature,
+            "num_predict": endpoint.max_tokens,
+        },
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=endpoint.timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            # Some models (gpt-oss) put content in 'thinking', not 'response'
+            response = data.get("response", "")
+            if not response.strip():
+                response = data.get("thinking", "")
+            return response
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+        return json.dumps({"error": str(e)})
+
+
+def complete(
+    endpoint: LLMEndpoint,
+    system_prompt: str,
+    user_prompt: str,
+) -> str:
+    """Send a completion request to any supported endpoint type."""
+    if endpoint.api_type == "ollama":
+        return _ollama_completion(endpoint, system_prompt, user_prompt)
+    elif endpoint.api_type == "llamacpp":
+        return _llamacpp_completion(endpoint, system_prompt, user_prompt)
+    elif endpoint.api_type in ("vllm", "openai_compat"):
+        return _openai_compat_completion(endpoint, system_prompt, user_prompt)
+    else:
+        return json.dumps({"error": f"Unknown api_type: {endpoint.api_type}"})
+
+
+def parse_json_response(text: str) -> dict:
+    """Extract JSON from an LLM response (handles markdown fences, etc.)."""
+    # Try direct parse first
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    # Try extracting from markdown code fence
+    if "```json" in text:
+        start = text.index("```json") + 7
+        end = text.index("```", start)
+        try:
+            return json.loads(text[start:end].strip())
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    if "```" in text:
+        start = text.index("```") + 3
+        end = text.index("```", start)
+        try:
+            return json.loads(text[start:end].strip())
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Try finding first { to last }
+    first_brace = text.find("{")
+    last_brace = text.rfind("}")
+    if first_brace >= 0 and last_brace > first_brace:
+        try:
+            return json.loads(text[first_brace:last_brace + 1])
+        except json.JSONDecodeError:
+            pass
+
+    return {"error": "Could not parse JSON from response", "raw": text[:500]}
+
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+def check_health(endpoint: LLMEndpoint) -> dict:
+    """Check if an LLM endpoint is reachable and responding."""
+    try:
+        url = f"{endpoint.base_url}/api/tags"
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return {"status": "ok", "code": resp.status, "name": endpoint.name}
+    except Exception as e:
+        return {"status": "down", "error": str(e), "name": endpoint.name}

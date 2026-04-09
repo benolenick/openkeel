@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import math
+import subprocess
 import sys
 import threading
 import time
@@ -77,6 +78,7 @@ ORANGE    = "#FF6611"
 DECAY_RATE   = 0.94   # multiplied per 500 ms tick  (half-life ≈ 5.5 s)
 CLOUD_SPIKE  = 100.0  # spike on new proxy trace event
 VRAM_SCALE   = 1.8    # stretch VRAM % so a 30% VRAM model shows ~55% on dial
+PINNED_FLOOR = 3.0    # permanently loaded models should look warm, not "busy"
 
 
 # ── Shared usage state ────────────────────────────────────────────────────────
@@ -150,6 +152,7 @@ def _local_monitor(stop: threading.Event):
     while not stop.is_set():
         for host_key, base_url in OLLAMA_HOSTS.items():
             try:
+                gpu_util = _host_gpu_util(host_key)
                 req = urllib.request.Request(
                     f"{base_url}/api/ps",
                     headers={"Content-Type": "application/json"},
@@ -182,16 +185,51 @@ def _local_monitor(stop: threading.Event):
                     if size_vram > 0:
                         vram_pct = min(100.0, (size_vram / total_vram) * 100 * VRAM_SCALE)
                         if is_permanent:
-                            # loaded permanently: show a warm floor
-                            USAGE.set_floor(rid, min(vram_pct, 25.0))
+                            # Permanently loaded should look warm, not falsely busy.
+                            USAGE.set_floor(rid, min(vram_pct, PINNED_FLOOR))
+                            if gpu_util > PINNED_FLOOR:
+                                USAGE.spike(rid, gpu_util)
                         else:
-                            # recently loaded/used: show real VRAM %
-                            USAGE.spike(rid, vram_pct)
+                            # A recently used model should reflect actual GPU work.
+                            USAGE.spike(rid, max(gpu_util, min(vram_pct, 15.0)))
 
             except Exception:
                 pass
 
         time.sleep(2.0)
+
+
+def _host_gpu_util(host_key: str) -> float:
+    """Return live GPU utilization for the host that owns this runner."""
+    if host_key == "kaloth":
+        cmd = [
+            "nvidia-smi",
+            "--query-gpu=utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ]
+    elif host_key == "jagg":
+        cmd = [
+            "ssh", "-o", "ConnectTimeout=2", "-o", "BatchMode=yes", "om@192.168.0.224",
+            "nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits",
+        ]
+    else:
+        return 0.0
+
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=2.5)
+    except Exception:
+        return 0.0
+    if r.returncode != 0:
+        return 0.0
+
+    vals: list[int] = []
+    for line in r.stdout.splitlines():
+        line = line.strip()
+        if line.isdigit():
+            vals.append(int(line))
+    if not vals:
+        return 0.0
+    return float(max(vals))
 
 
 # ── Dial widget ───────────────────────────────────────────────────────────────

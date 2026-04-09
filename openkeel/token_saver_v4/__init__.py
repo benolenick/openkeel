@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import os
 
-__version__ = "0.4.0"
+__version__ = "0.4.5"
 
 def is_enabled() -> bool:
     return os.environ.get("TOKEN_SAVER_V4", "0") == "1"
