@@ -73,10 +73,11 @@ class StepDeriver:
         policy = step.escalation_policy
 
         # Check if we can escalate the runner
-        current_mode = getattr(step, "current_mode", Mode.DIRECT)
-        if current_mode < policy.max_mode:
-            # Escalate to next mode
-            next_mode = Mode(current_mode.value + 1)
+        current_mode = getattr(step, "replacement_mode", Mode.DIRECT)
+        if current_mode.value < policy.max_mode.value:
+            # Escalate to next mode (by numeric value, not direct comparison)
+            next_mode_value = min(current_mode.value + 1, policy.max_mode.value)
+            next_mode = Mode(next_mode_value)
             step.replacement_mode = next_mode
             step.escalation_policy.retries_remaining = 1
             return CompletionDecision(

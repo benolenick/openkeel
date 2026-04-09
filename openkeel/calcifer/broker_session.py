@@ -8,6 +8,7 @@ Handles: classify → plan → execute → judge → respond
 import uuid
 import json
 import subprocess
+import logging
 from typing import Optional
 from openkeel.calcifer.broker import Broker
 from openkeel.calcifer.contracts import IntentionPacket, TaskSession
@@ -15,6 +16,8 @@ from openkeel.calcifer.band_classifier import BandClassifier, Band
 from openkeel.calcifer.opus_planning_agent import OpusPlanningAgent
 from openkeel.calcifer.sonnet_planning_agent import SonnetPlanningAgent
 from openkeel.calcifer.opus_judgment_agent import OpusJudgmentAgent
+
+logger = logging.getLogger("calcifer.broker_session")
 
 
 class BrokerSession:
@@ -193,7 +196,8 @@ class BrokerSession:
         return "C"
 
     def _log(self, msg: str):
-        """Log message if verbose."""
+        """Log message to both logger and stdout if verbose."""
+        logger.info(msg)
         if self.verbose:
             print(msg)
 
