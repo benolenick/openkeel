@@ -13,6 +13,7 @@ import json
 import argparse
 from pathlib import Path
 from openkeel.calcifer.broker_session import BrokerSession
+from openkeel.calcifer.routing_policy import RoutingPolicy
 
 
 class CalciferCLI:
@@ -43,8 +44,23 @@ Examples:
         parser.add_argument("--json", action="store_true", help="Output as JSON (include metadata)")
         parser.add_argument("--verbose", action="store_true", help="Show routing decisions")
         parser.add_argument("--context", action="store_true", help="Show message history")
+        parser.add_argument("--preset", type=str, choices=["cheap", "balanced", "quality", "local"], help="Use routing preset")
+        parser.add_argument("--settings", choices=["show", "reset"], help="Show or reset routing settings")
+        parser.add_argument("--presets", action="store_true", help="List available presets")
 
         args = parser.parse_args()
+
+        # Handle routing settings commands
+        if args.presets:
+            RoutingPolicy.show_presets()
+            sys.exit(0)
+        if args.settings == "show":
+            RoutingPolicy.show_config()
+            sys.exit(0)
+        if args.settings == "reset":
+            RoutingPolicy.CONFIG_FILE.unlink(missing_ok=True)
+            print("Settings reset to defaults")
+            sys.exit(0)
 
         # Get prompt
         if args.prompt:
