@@ -46,6 +46,7 @@ from openkeel.calcifer.ladder_window import (
     DARK_BG, PANEL_BG, BORDER, DIM_TEXT, LIGHT_TXT, ORANGE,
 )
 from openkeel.calcifer.broker_gui_adapter import BrokerGUIAdapter
+from openkeel.calcifer.settings_dialog import SettingsDialog
 
 # ── Runner config ────────────────────────────────────────────────────────────
 
@@ -553,6 +554,11 @@ class LadderChatWindow(QMainWindow):
         )
         lay.addWidget(self._route_lbl)
 
+        settings_btn = QPushButton("⚙ Settings")
+        settings_btn.setObjectName("ghost")
+        settings_btn.clicked.connect(self._show_settings)
+        lay.addWidget(settings_btn)
+
         clear_btn = QPushButton("Clear")
         clear_btn.setObjectName("ghost")
         clear_btn.clicked.connect(self._clear_chat)
@@ -735,6 +741,11 @@ class LadderChatWindow(QMainWindow):
             if item.widget():
                 item.widget().deleteLater()
         self._history.clear()
+
+    def _show_settings(self) -> None:
+        """Show routing settings dialog."""
+        dialog = SettingsDialog(self)
+        dialog.exec_()
 
     # ── Tick / cleanup ────────────────────────────────────────────────────────
 

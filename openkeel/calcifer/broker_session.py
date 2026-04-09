@@ -16,6 +16,7 @@ from openkeel.calcifer.band_classifier import BandClassifier, Band
 from openkeel.calcifer.opus_planning_agent import OpusPlanningAgent
 from openkeel.calcifer.sonnet_planning_agent import SonnetPlanningAgent
 from openkeel.calcifer.opus_judgment_agent import OpusJudgmentAgent
+from openkeel.calcifer.routing_policy import RoutingPolicy
 
 logger = logging.getLogger("calcifer.broker_session")
 
@@ -23,15 +24,17 @@ logger = logging.getLogger("calcifer.broker_session")
 class BrokerSession:
     """Pure Python broker session — no GUI, testable, CLI-friendly."""
 
-    def __init__(self, session_id: Optional[str] = None, verbose: bool = False):
+    def __init__(self, session_id: Optional[str] = None, verbose: bool = False, policy: Optional[RoutingPolicy] = None):
         """Initialize session.
 
         Args:
             session_id: optional session identifier (defaults to random UUID)
             verbose: if True, log all decisions to stdout
+            policy: routing policy (loads ~/.calcifer/config.json if None)
         """
         self.session_id = session_id or str(uuid.uuid4())[:8]
         self.verbose = verbose
+        self.policy = policy or RoutingPolicy.load()
         self.broker = Broker()
         self.classifier = BandClassifier()
         self.opus_planner = OpusPlanningAgent()
@@ -80,8 +83,9 @@ class BrokerSession:
                 self._log(f"[2] Skipping planner (Band {band.name})")
                 task, steps = self._create_direct_step(band, intention)
             else:
-                planner = self.sonnet_planner if band == Band.C else self.opus_planner
-                planner_name = "Sonnet" if band == Band.C else "Opus"
+                _pm = self.policy.planner_model_for(band.name)
+                planner = self.sonnet_planner if _pm == "sonnet" else self.opus_planner
+                planner_name = _pm.capitalize()
                 self._log(f"[2] Calling {planner_name}PlanningAgent...")
                 try:
                     task, steps = planner.plan(intention)
@@ -149,10 +153,10 @@ class BrokerSession:
 
         if band == Band.A:
             step_kind = "reason"
-            mode = Mode.SONNET
+            mode = self.policy.mode_for_band_a()
         else:  # Band B
             step_kind = "read"
-            mode = Mode.DIRECT
+            mode = self.policy.mode_for_band_b()
 
         step = StepSpec(
             step_id=f"{task.id}_s0",

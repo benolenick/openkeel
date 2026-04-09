@@ -47,20 +47,44 @@ Examples:
         parser.add_argument("--preset", type=str, choices=["cheap", "balanced", "quality", "local"], help="Use routing preset")
         parser.add_argument("--settings", choices=["show", "reset"], help="Show or reset routing settings")
         parser.add_argument("--presets", action="store_true", help="List available presets")
+        # Per-band model overrides
+        parser.add_argument("--band-a-model", choices=["haiku", "sonnet", "opus"], metavar="MODEL", help="Model for Band A (chat/trivial)")
+        parser.add_argument("--band-b-model", choices=["direct", "sonnet", "opus"], metavar="MODEL", help="Model for Band B (simple reads)")
+        parser.add_argument("--band-c-model", choices=["sonnet", "opus"], metavar="MODEL", help="Model for Band C (standard task)")
+        parser.add_argument("--band-d-model", choices=["opus", "sonnet"], metavar="MODEL", help="Model for Band D (hard/multi-step)")
+        parser.add_argument("--band-e-model", choices=["opus", "sonnet"], metavar="MODEL", help="Model for Band E (escalated)")
+        parser.add_argument("--judge-model", choices=["opus", "sonnet"], metavar="MODEL", help="Model for judgment step")
 
         args = parser.parse_args()
 
         # Handle routing settings commands
         if args.presets:
-            RoutingPolicy.show_presets()
+            from openkeel.calcifer.routing_policy import PRESETS, BAND_VALID_MODELS
+            print("Available presets:")
+            for name, models in PRESETS.items():
+                print(f"  {name:<12}", " | ".join(f"{k}={v}" for k, v in models.items()))
             sys.exit(0)
         if args.settings == "show":
-            RoutingPolicy.show_config()
+            policy = RoutingPolicy.load(preset=args.preset)
+            print(policy.show())
             sys.exit(0)
         if args.settings == "reset":
-            RoutingPolicy.CONFIG_FILE.unlink(missing_ok=True)
-            print("Settings reset to defaults")
+            from openkeel.calcifer.routing_policy import CONFIG_PATH
+            CONFIG_PATH.unlink(missing_ok=True)
+            print("Settings reset to defaults.")
             sys.exit(0)
+
+        # Build routing policy from preset + per-band overrides
+        policy = RoutingPolicy.load(preset=args.preset)
+        overrides = {}
+        for slot, attr in [("band_a", "band_a_model"), ("band_b", "band_b_model"),
+                           ("band_c", "band_c_model"), ("band_d", "band_d_model"),
+                           ("band_e", "band_e_model"), ("judge", "judge_model")]:
+            val = getattr(args, attr, None)
+            if val:
+                overrides[slot] = val
+        if overrides:
+            policy = policy.with_override(**overrides)
 
         # Get prompt
         if args.prompt:
@@ -78,7 +102,7 @@ Examples:
             session_id = args.session or "default"
 
         # Create session
-        session = BrokerSession(session_id=session_id, verbose=args.verbose)
+        session = BrokerSession(session_id=session_id, verbose=args.verbose, policy=policy)
 
         # Load history if persistent session
         if args.session and not args.new:
