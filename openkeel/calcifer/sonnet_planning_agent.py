@@ -14,10 +14,11 @@ import uuid
 class SonnetPlanningAgent:
     """Call Claude Sonnet to derive plan from intention (Band C only)."""
 
-    PLANNING_SYSTEM = """You are a planning agent for standard tasks. Your job is to read the user's
-intent and break it into executable steps.
+    PLANNING_SYSTEM = """You are a planning agent for standard (Band C) tasks. Your job is to break a
+bounded, well-scoped task into 3-5 concrete executable steps. Do not over-plan — this is
+not a design task, just a structured execution.
 
-Return ONLY valid JSON with this exact structure:
+Return ONLY valid JSON — no prose, no markdown fences, no explanation. Exact structure:
 {
   "task_title": "short title",
   "task_objective": "what we're trying to accomplish",
@@ -34,16 +35,17 @@ Return ONLY valid JSON with this exact structure:
 
 Step kinds:
 - "read": read and understand a file
-- "grep": search for patterns
-- "edit": make a code change
-- "diagnose": reason about a problem
-- "reason": plan next phase or answer question
+- "grep": search for patterns in code
+- "edit": make a targeted code change
+- "diagnose": reason about a specific problem
+- "reason": answer a bounded question
 
-Be specific. Break complex tasks into 3-5 steps."""
+Keep steps concrete and bounded. 3-5 steps maximum. No architecture, no open-ended design."""
 
-    def plan(self, intention: IntentionPacket) -> tuple[Task, list[StepSpec]]:
+    def plan(self, intention: IntentionPacket, prior_context: str = "") -> tuple[Task, list[StepSpec]]:
         """Call Sonnet to derive plan from intention."""
-        prompt = f"""User intent: {intention.goal_id}
+        context_section = f"\nPrior session context (for continuity):\n{prior_context}\n" if prior_context.strip() else ""
+        prompt = f"""User intent: {intention.user_request}{context_section}
 
 Intended outcome: {intention.intended_outcome}
 
@@ -53,7 +55,9 @@ Return JSON plan."""
 
         try:
             result = subprocess.run(
-                ["claude", "-p", prompt, "--model", "sonnet"],
+                ["claude", "-p", "--model", "sonnet",
+                 "--system-prompt", self.PLANNING_SYSTEM],
+                input=prompt,
                 capture_output=True,
                 text=True,
                 timeout=60,  # Shorter timeout than Opus

@@ -218,7 +218,7 @@ class TestFallbackBehavior:
 
         failures = 0
         for prompt in test_prompts:
-            response, metadata = self.session.send_message(prompt)
+            response, metadata = session.send_message(prompt)
             if not metadata["success"]:
                 failures += 1
 

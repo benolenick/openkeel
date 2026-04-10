@@ -88,7 +88,8 @@ class BrokerSession:
                 planner_name = _pm.capitalize()
                 self._log(f"[2] Calling {planner_name}PlanningAgent...")
                 try:
-                    task, steps = planner.plan(intention)
+                    prior_ctx = self.get_context(max_turns=3)
+                    task, steps = planner.plan(intention, prior_context=prior_ctx)
                     self._log(f"[2] Plan: {len(steps)} steps")
                 except Exception as e:
                     # Log error LOUDLY

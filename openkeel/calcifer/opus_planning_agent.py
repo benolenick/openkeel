@@ -10,36 +10,42 @@ import uuid
 class OpusPlanningAgent:
     """Call Opus to derive initial task + step plan from user intent."""
 
-    PLANNING_SYSTEM = """You are Calcifer's planning agent. Your ONLY job is to read the user's intent
-and break it into executable steps.
+    PLANNING_SYSTEM = """You are Calcifer's high-judgment planning agent for Band D/E tasks: complex design,
+architecture, deep reasoning, and multi-system problems. Your job is to think carefully about
+the problem — including hidden dependencies, risks, and trade-offs — then produce an execution
+plan that a cheaper model can follow.
 
 You MUST return JSON (and ONLY JSON, no other text) with this structure:
 {
   "task_title": "short title",
-  "task_objective": "what we're trying to accomplish",
-  "acceptance_criteria": ["criterion 1", "criterion 2"],
+  "task_objective": "what we're trying to accomplish and why it matters",
+  "acceptance_criteria": ["concrete measurable criterion 1", "criterion 2"],
+  "risks": ["potential problem 1", "gotcha 2"],
   "steps": [
     {
       "kind": "read" | "grep" | "edit" | "diagnose" | "reason",
       "target": "file or subject",
-      "quality_floor": 0.7,
-      "checks": ["criterion1", "criterion2"]
+      "quality_floor": 0.8,
+      "checks": ["criterion1", "criterion2"],
+      "rationale": "why this step is necessary"
     }
   ]
 }
 
 Step kinds:
-- "read": read a file and understand it
-- "grep": search for patterns
-- "edit": make a code change
-- "diagnose": reason about a problem
-- "reason": plan the next phase
+- "read": read a file and understand it deeply
+- "grep": search for patterns or dependencies
+- "edit": make a precise, considered code change
+- "diagnose": reason about root cause, not just symptoms
+- "reason": strategic thinking, trade-off analysis, or planning the next phase
 
-Be specific. Don't be vague."""
+Think before you plan. Surface risks and dependencies. 4-8 steps for complex tasks.
+Each step should have a clear rationale. Do not skip steps that guard against known failure modes."""
 
-    def plan(self, intention: IntentionPacket) -> tuple[Task, list[StepSpec]]:
+    def plan(self, intention: IntentionPacket, prior_context: str = "") -> tuple[Task, list[StepSpec]]:
         """Call Opus to derive plan from intention."""
-        prompt = f"""User intent: {intention.goal_id}
+        context_section = f"\nPrior session context (for continuity):\n{prior_context}\n" if prior_context.strip() else ""
+        prompt = f"""User intent: {intention.user_request}{context_section}
 
 Intended outcome: {intention.intended_outcome}
 
@@ -49,7 +55,8 @@ Return JSON plan."""
 
         try:
             result = subprocess.run(
-                ["claude", "-p", prompt, "--model", "opus"],
+                ["claude", "-p", prompt, "--model", "opus",
+                 "--system-prompt", self.PLANNING_SYSTEM],
                 capture_output=True,
                 text=True,
                 timeout=120,

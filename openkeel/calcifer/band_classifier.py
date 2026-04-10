@@ -60,10 +60,10 @@ class BandClassifier:
 
     # Band D patterns: design/complex reasoning/architecture (high complexity)
     BAND_D_PATTERNS = [
-        r"(design|architect) (a |the |this )?(.{15,})",  # explicit design/architect
+        r"(design|architect) (a |the |this )?(.{6,})",  # explicit design/architect
         r"^(how would you|how should|how can you) (build|design|architect|implement|create) (.{20,})",  # build/design questions
         r"(build|implement) (a |the )?(distributed|scalable|recommendation|cache|system|service|queue|database|engine)",  # complex systems
-        r"(write an essay about|compare|contrast) (\w+)",  # essays and analysis
+        r"(write an essay about|compare|contrast) (.{20,})",  # essays and analysis — require substantial subject
         r"^why (is|does|should|would)",  # deep reasoning
         r"(security audit|code audit|architecture review|design review)",  # explicit reviews
     ]
