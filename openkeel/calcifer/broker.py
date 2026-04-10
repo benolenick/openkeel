@@ -18,12 +18,13 @@ from openkeel.calcifer.evidence_store import EvidenceStore
 from openkeel.calcifer.executors import DirectRunner, SemanticRunner, SonnetRunner, OpusRunner
 from openkeel.calcifer.status_summarizer import StatusSummarizer
 from openkeel.calcifer.step_deriver import StepDeriver
+from openkeel.calcifer.refusal_detector import RefusalDetector
 
 
 class Broker:
     """Owns task session, routes execution, keeps raw output out of Opus's context."""
 
-    def __init__(self):
+    def __init__(self, auto_escalate_refusals: bool = True):
         self.evaluator = Evaluator(EvidenceStore())
         self.summarizer = StatusSummarizer()
         self.deriver = StepDeriver()
@@ -31,6 +32,9 @@ class Broker:
         self.semantic = SemanticRunner()
         self.sonnet = SonnetRunner()
         self.opus = OpusRunner()
+        self.refusal_detector = RefusalDetector()
+        self.auto_escalate_refusals = auto_escalate_refusals
+        self.escalation_history = {}  # Track escalations to avoid infinite loops
 
     def run_task(
         self,
@@ -84,9 +88,34 @@ class Broker:
         return session
 
     def _execute_step(self, step: StepSpec) -> StatusPacket:
-        """Route a step to the appropriate executor."""
+        """Route a step to the appropriate executor, with refusal detection."""
         mode = step.replacement_mode
 
+        # Execute at the specified mode
+        status = self._route_to_executor(mode, step)
+
+        # Check if response is a refusal and we can escalate
+        if self.auto_escalate_refusals and mode != Mode.OPUS:
+            detection = self.refusal_detector.detect(status.result_summary)
+
+            if detection.is_refusal and detection.suggested_escalation:
+                # Check escalation history to avoid infinite loops
+                escalation_key = f"{step.step_id}_{mode.name}"
+                if escalation_key not in self.escalation_history:
+                    self.escalation_history[escalation_key] = 0
+
+                if self.escalation_history[escalation_key] < 1:  # Only escalate once per step/mode
+                    self._log(f"[REFUSAL DETECTED] {detection.reason} → escalating to Opus")
+                    self.escalation_history[escalation_key] += 1
+
+                    # Retry with Opus
+                    status = self._route_to_executor(Mode.OPUS, step)
+                    status.actions_taken.insert(0, f"escalated from {mode.name} due to refusal")
+
+        return status
+
+    def _route_to_executor(self, mode: Mode, step: StepSpec) -> StatusPacket:
+        """Route step to the appropriate executor based on mode."""
         if mode == Mode.DIRECT:
             return self.direct.execute(step)
         elif mode == Mode.SEMANTIC:
@@ -107,6 +136,10 @@ class Broker:
                 needs_escalation=True,
                 runner_id="broker",
             )
+
+    def _log(self, msg: str):
+        """Log a message."""
+        print(f"[BROKER] {msg}")
 
     def summarize_for_opus(self, session: TaskSession) -> str:
         """Generate a compact summary of session state for Opus to see."""

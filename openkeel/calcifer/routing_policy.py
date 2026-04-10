@@ -111,12 +111,14 @@ class RoutingPolicy:
         preset: str = "balanced",
         models: Optional[dict[str, str]] = None,
         local_preferred: bool = False,
+        auto_escalate_refusals: bool = True,
     ):
         self.preset = preset
         self.models: dict[str, str] = dict(PRESETS["balanced"])
         if models:
             self.models.update(models)
         self.local_preferred = local_preferred
+        self.auto_escalate_refusals = auto_escalate_refusals
 
     # ------------------------------------------------------------------
     # Factory methods
