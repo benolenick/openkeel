@@ -76,10 +76,10 @@ class OpenKeelWindow(QMainWindow):
         layout.addWidget(brand)
 
         # Launch Claude button
-        self._launch_btn = QPushButton("\u25B6 Claude")
+        self._launch_btn = QPushButton("\u25B6 Bubble")
         self._launch_btn.setObjectName("launch-btn")
         self._launch_btn.setFixedHeight(28)
-        self._launch_btn.setToolTip("Launch Claude Code in the terminal")
+        self._launch_btn.setToolTip("Launch OpenKeel bubble chat (Haiku gather + Sonnet synthesize)")
         self._launch_btn.clicked.connect(self._launch_claude)
         layout.addWidget(self._launch_btn)
 
@@ -283,10 +283,10 @@ class OpenKeelWindow(QMainWindow):
             self._llm_dot.set_offline("Local LLM not configured")
 
     def _launch_claude(self):
-        """Send 'claude' command to the terminal PTY."""
+        """Launch openkeel chat REPL in the terminal PTY."""
         pty = getattr(self._terminal, "_pty", None)
         if pty and pty.isalive():
-            pty.write("claude\n")
+            pty.write("openkeel chat\n")
             self._launch_btn.setEnabled(False)
             self._launch_btn.setText("Running...")
             # Re-enable after 3s in case they exit and want to relaunch
@@ -294,7 +294,7 @@ class OpenKeelWindow(QMainWindow):
 
     def _reset_launch_btn(self):
         self._launch_btn.setEnabled(True)
-        self._launch_btn.setText("\u25B6 Claude")
+        self._launch_btn.setText("\u25B6 Bubble")
 
     def _open_settings(self):
         dlg = SettingsDialog(self)

@@ -9,7 +9,7 @@ def main():
         prog="openkeel",
         description="OpenKeel 2.0 — AI agent toolkit with token-saving delegation + long-term memory",
     )
-    parser.add_argument("task", nargs="?", help="Run a bubble analysis task (headless mode)")
+    parser.add_argument("task", nargs="?", help="Run a bubble analysis task (or 'chat' for interactive REPL)")
     parser.add_argument("--repo", default=None, help="Repository path (default: cwd)")
     parser.add_argument("--headless", action="store_true", help="Run without GUI")
     parser.add_argument("--status", action="store_true", help="Show current status")
@@ -18,6 +18,10 @@ def main():
 
     if args.status:
         _show_status()
+        return
+
+    if args.task == "chat":
+        _run_chat(args)
         return
 
     if args.task or args.headless:
@@ -47,14 +51,12 @@ def _show_status():
     print(f"  Local model:{s.get('local_model', 'none')}")
     print()
 
-    # Hyphae
     try:
         from openkeel.hyphae import is_available
         print(f"  Hyphae:     {'connected' if is_available() else 'offline'}")
     except Exception:
         print("  Hyphae:     error")
 
-    # Ollama
     if s.get("runner") == "local":
         try:
             import urllib.request, json
@@ -83,10 +85,72 @@ def _run_headless(args):
         print("No task provided. Usage: openkeel 'your task' --repo /path", file=sys.stderr)
         sys.exit(1)
 
-    # Use bubble engine
     from openkeel.bubble.engine import run
     output, cost, log = run(task, repo, verbose=True, local_mode=s.get("runner", "haiku_api"))
     print(output)
+
+
+def _run_chat(args):
+    """Interactive bubble REPL — each turn = Haiku gather + Sonnet CLI synthesize."""
+    import os
+    from openkeel.gui.settings import load_settings
+    from openkeel.bubble.engine import run
+
+    s = load_settings()
+    repo = args.repo or os.getcwd()
+    runner = s.get("runner", "haiku_api")
+
+    # Banner
+    print("\033[1;36m" + "=" * 60 + "\033[0m")
+    print("\033[1;36mOpenKeel Bubble Chat\033[0m  —  Haiku gathers, Sonnet synthesizes")
+    print(f"\033[2mrepo: {repo}   runner: {runner}   (Ctrl-D or 'exit' to quit)\033[0m")
+    print("\033[1;36m" + "=" * 60 + "\033[0m")
+    print()
+
+    # Conversation history — keep last N turns
+    history = []
+    MAX_HISTORY_TURNS = 3
+
+    while True:
+        try:
+            user_input = input("\033[1;33m> \033[0m").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nbye")
+            return
+
+        if not user_input:
+            continue
+        if user_input.lower() in ("exit", "quit", ":q"):
+            print("bye")
+            return
+
+        # Build task with conversation context
+        if history:
+            ctx_parts = ["## Recent conversation\n"]
+            for u, a in history[-MAX_HISTORY_TURNS:]:
+                ctx_parts.append(f"User: {u}\nAssistant: {a[:1500]}\n")
+            ctx_parts.append(f"\n## Current request\n{user_input}")
+            task = "\n".join(ctx_parts)
+        else:
+            task = user_input
+
+        try:
+            output, cost, log = run(task, repo, verbose=False, local_mode=runner)
+        except Exception as e:
+            print(f"\033[31m[bubble error] {e}\033[0m\n")
+            continue
+
+        # Print response
+        print()
+        print(output)
+        print()
+        # Cost line
+        gathered = log.get("gather", {}).get("gathered_len", 0) if isinstance(log, dict) else 0
+        wall_ms = log.get("wall_ms", 0) if isinstance(log, dict) else 0
+        print(f"\033[2m[bubble] ${cost:.4f}  {wall_ms}ms  {gathered} chars gathered\033[0m")
+        print()
+
+        history.append((user_input, output or ""))
 
 
 if __name__ == "__main__":
