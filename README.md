@@ -1,180 +1,168 @@
-# OpenKeel 2.0
+# OpenKeel v3
 
-**Token-saving AI agent toolkit for Claude Code.** Cuts Sonnet CLI calls by 60%+ through intelligent bubble delegation — Sonnet plans and synthesizes, cheaper models (Haiku API, local LLMs via Ollama) handle the grunt work.
+**Save 70% on Claude Code costs without losing quality.**
 
----
+OpenKeel is a transparent token-saving layer for Claude Code. It sits between you and the API, automatically delegating cheap work to cheaper models (Haiku, local LLMs) while keeping Sonnet for the thinking that matters. You open it, launch Claude, and it just works — no workflow changes.
 
-## The Problem
+![OpenKeel v3 GUI](assets/openkeelv2.svg)
 
-Claude Code's Sonnet model is powerful but quota-limited (~5M OEQ/week on Pro). Every file read, every sub-task, every classification burns the same expensive tokens. Most of that work doesn't need Sonnet-level intelligence.
+## What it does
 
-## The Solution
+- **Token Saver Hooks** — Intercepts Claude Code tool calls via the hooks API. Caches file re-reads, compresses verbose bash output through a local LLM, and rewrites redundant commands. Cuts Sonnet token usage by ~66%.
+- **Hyphae Memory** — Auto-injects long-term project memory at session start. Claude remembers what you worked on last time without you having to explain it again.
+- **Pace Gauge** — Real-time visualization of your quota burn rate. Shows whether you're ahead or behind your weekly budget so you can pace yourself.
+- **Per-Model Dials** — Live token counters for Sonnet, Haiku, Opus, and Local models. See exactly where your tokens are going.
 
-OpenKeel 2.0 implements **bubble delegation** — a gather-then-reason pattern:
+## Benchmark Results
 
-1. **Sonnet plans** the task (what sub-tasks are needed)
-2. **Haiku API classifies** each sub-task's difficulty
-3. **Cheap models execute** — Haiku API (with tool use) for moderate analysis, local LLMs via Ollama for simple lookups
-4. **Sonnet synthesizes** the gathered data into a final answer
+Tested across 15 coding tasks (easy/medium/hard) with blind A/B judging:
 
-Result: same quality output, 60% fewer Sonnet calls, ~$0.10 in Haiku API costs per session.
+| Metric | Vanilla Claude | OpenKeel Flat | Change |
+|--------|---------------|---------------|--------|
+| Sonnet tokens | 290,467 | 97,607 | **-66.4%** |
+| Cost per task | $1.03 | $0.31 | **-70.0%** |
+| Wall time/task | 247s | 104s | **-57.8%** |
+| Quality score | 6.7/10 | 7.2/10 | **+0.5** |
 
-## Empirical Results
+Flat mode actually scores *higher* on quality because the gather→reason pipeline gives Sonnet better-organized input to synthesize from.
 
-Tested with a comprehensive A/B battery: identical tasks run under vanilla (Sonnet-does-everything) and flat (bubble delegation) configurations.
+### Quality by difficulty
 
-| Metric | Vanilla | Flat (Bubble) |
-|--------|---------|---------------|
-| Sonnet CLI calls | 15 | 6 |
-| Haiku API calls | 0 | 15 |
-| Haiku cost | $0 | $0.099 |
-| Local LLM calls | 0 | 3 |
-| OEQ burn | 39,000 | 15,600 |
-| **Sonnet reduction** | — | **60%** |
-| **OEQ saved** | — | **23,400** |
+| Difficulty | Tasks | Sonnet Savings | Quality |
+|-----------|-------|---------------|---------|
+| Easy | 5 | 65.8% | Equal |
+| Medium | 5 | 81.7% | Flat wins |
+| Hard | 5 | 37.6% | Flat wins |
 
-*Pilot results from 3 tasks (easy/medium). Full 15-task battery with LLM-as-judge quality scoring in progress.*
+### Cost breakdown
 
-## Features
-
-### Bubble Delegation Engine
-- **Flat mode**: Haiku classifies + routes to Haiku API or local LLM
-- **Cascade mode**: Haiku classifies difficulty tier → local (easy), local+Haiku judge (medium), Sonnet (hard)
-- **Ultra mode**: Local gather + local reason + Haiku quality gate with Sonnet escalation
-- Automatic quality gates and vanilla fallback when gather quality is poor
-
-### Hyphae Long-Term Memory
-- Persistent vector memory across sessions (38K+ facts)
-- Auto-injects relevant context at session start
-- Remembers findings, decisions, and techniques
-- Project-scoped recall prevents cross-project bleed
-
-### GUI Dashboard
-- Qt6 (PySide6) desktop app with embedded terminal
-- Real-time token tracking from Claude Code JSONL files
-- 4 model dials: Opus / Sonnet / Haiku / Local — exact token counts per model
-- BPH (burn per hour) gauge for quota pacing
-- Hyphae and LLM status indicators
-- One-click "Launch Claude" button
-- Settings dialog for all configuration
-
-### Session Watcher
-- Tails `~/.claude/projects/*/` JSONL files in real-time
-- Extracts exact `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`
-- Maps model IDs to lanes (opus/sonnet/haiku/local)
-- Feeds live data to GUI dials
-
-## Quick Start
-
-```bash
-# Install
-pip install -e .
-
-# Launch GUI
-openkeel
-
-# Or headless mode
-openkeel "analyze the authentication flow" --repo /path/to/project
-
-# Check status
-openkeel --status
+```
+Vanilla Sonnet cost:    $15.48  (15 tasks)
+Flat Sonnet cost:       $ 4.05
+Flat Haiku cost:        $ 0.59
+Flat total:             $ 4.64
+Savings:                $10.84  (70.0%)
 ```
 
-### Requirements
+## How it works
+
+OpenKeel uses Claude Code's [hooks system](https://docs.anthropic.com/en/docs/claude-code/hooks) to transparently intercept and optimize API calls:
+
+1. **SessionStart** — Connects to Hyphae memory, injects project context and usage instructions
+2. **PreToolUse** — Intercepts tool calls before execution:
+   - File re-reads → served from compressed cache instead of full re-read
+   - Bash commands → rewritten to compact versions, output compressed via local LLM
+3. **PostToolUse** — Logs token usage for the dashboard dials
+
+The "bubble" delegation pattern:
+- **Sonnet** makes 2 calls: plan what to gather, then synthesize the final answer
+- **Haiku API** makes 5-8 calls: cheap data gathering (reading files, running commands)
+- **Local LLM** (Ollama): optional simple lookups, completely free
+
+```
+User Question
+    ↓
+[Sonnet] Plan what data to gather
+    ↓
+[Haiku ×6] Read files, run commands, collect data
+    ↓
+[Sonnet] Synthesize gathered data into answer
+    ↓
+Response (same quality, 70% cheaper)
+```
+
+## Installation
+
+### Prerequisites
+
 - Python 3.10+
-- Claude Code CLI (`claude`) installed
-- For local LLMs: [Ollama](https://ollama.com) with a model loaded (e.g., `gemma3:4b`)
-- For Hyphae memory: Hyphae server running on port 8100
+- PySide6 (`pip install PySide6`)
+- Claude Code CLI installed
+- Ollama (optional, for local LLM compression)
+- [Hyphae](https://github.com/benolenick/hyphae) (optional, for long-term memory)
 
-### Configuration
+### Setup
 
-Settings are stored in `~/.openkeel2/settings.json`. Defaults:
+```bash
+git clone https://github.com/benolenick/openkeel.git
+cd openkeel
+pip install -e .
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `cli_model` | `sonnet` | Claude CLI model for planning/synthesis |
-| `runner` | `haiku_api` | Sub-task executor: `haiku_api`, `local`, or `off` |
-| `routing` | `flat` | Delegation mode: `flat`, `cascade`, `ultra` |
-| `local_model` | `gemma3:4b` | Ollama model for local execution |
-| `hyphae_enabled` | `true` | Enable Hyphae memory integration |
+# Copy hooks to Claude Code settings
+# Add to ~/.claude/settings.json:
+```
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "python3 /path/to/openkeel/src/openkeel/hooks/session_start.py",
+        "timeout": 15
+      }]
+    }],
+    "PreToolUse": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "python3 /path/to/openkeel/token_saver/hooks/pre_tool.py",
+        "timeout": 120
+      }]
+    }]
+  }
+}
+```
+
+### Launch
+
+```bash
+# CLI
+python3 -m openkeel.gui.app
+
+# Or use the desktop launcher
+```
+
+## GUI
+
+The toolbar shows:
+- **COST dial** (big) — Pace gauge. Green/left = under budget, red/right = over budget. Weighted by 8-hour working blocks across the week.
+- **Model dials** — Per-model token rates (Sonnet, Haiku, Opus, Local). Hover for totals.
+- **Hyphae dot** — Green = memory connected
+- **LLM dot** — Green = Ollama running with your model loaded
+
+Status bar shows quota remaining and days until reset.
 
 ## Architecture
 
 ```
 openkeel/
-  bubble/
-    engine.py      — Main orchestrator (gather-then-reason)
-    gather.py      — Haiku API + local LLM data collection with tool use
-    reason.py      — Sonnet CLI / local / ultra / cascade reasoning
-    router.py      — Task complexity routing (bubble vs vanilla)
-    config.py      — Claude CLI + model configuration
-    ollama.py      — Ollama API client for local LLMs
-    settings.py    — Bubble-specific settings
-  gui/
-    app.py         — Main window, toolbar, terminal integration
-    widgets.py     — BPH dial, mini model dials, status dots
-    session_watcher.py — Real-time JSONL token tracking
-    terminal.py    — Embedded terminal emulator
-    theme.py       — Dark theme CSS
-    settings.py    — Settings dialog + persistence
-  hyphae/
-    client.py      — Hyphae memory client (recall/remember)
-  cli.py           — CLI entry point
-  quota.py         — OEQ quota tracking
+├── gui/           # PySide6 GUI with embedded terminal
+│   ├── app.py     # Main window, toolbar, status bar
+│   ├── terminal.py# PTY-based terminal widget
+│   ├── widgets.py # Pace gauge, model dials, status dots
+│   └── theme.py   # Dark theme + accent colors
+├── hooks/         # Claude Code hook scripts
+│   └── session_start.py  # Hyphae injection
+├── bubble/        # Delegation engine
+│   ├── engine.py  # gather→reason pipeline
+│   └── settings.py# Model config
+├── quota.py       # Weekly quota tracking
+└── hyphae.py      # Memory integration
 ```
-
-## How Bubble Delegation Works
-
-```
-User Task
-    │
-    ▼
-┌─────────┐
-│ Sonnet   │  Plan: break into sub-tasks
-│ (CLI)    │
-└────┬─────┘
-     │
-     ▼ for each sub-task:
-┌─────────────┐
-│ Haiku API   │  Classify: can a small model handle this?
-│ (classifier)│
-└──────┬──────┘
-       │
-   ┌───┴───┐
-   │       │
-   ▼       ▼
-┌──────┐ ┌──────────┐
-│Local │ │Haiku API │  Execute with tool use
-│LLM   │ │(executor)│  (file reads, grep, etc.)
-└──┬───┘ └────┬─────┘
-   │          │
-   └────┬─────┘
-        ▼
-┌─────────┐
-│ Sonnet   │  Synthesize gathered data into answer
-│ (CLI)    │
-└──────────┘
-```
-
-**Sonnet touches**: 2 calls (plan + synthesize)
-**Without bubble**: 5-6+ Sonnet calls (plan + read files + analyze + synthesize)
 
 ## Testing
 
-### A/B Battery Test
-```bash
-# Pilot (3 tasks, ~15 min)
-python3 tests/ab_battery.py --repo . --tasks T1,T2,T3
+The `tests/` directory contains the full A/B benchmark suite:
 
-# Full battery (15 tasks, ~2 hrs)
-python3 tests/ab_full_battery.py --repo . --output tests/ab_results_v2.json --report tests/ab_report_v2.md
-```
+- `ab_full_battery.py` — 15-task battery comparing vanilla vs flat
+- `judge_v3.py` — Blind A/B quality judge
+- `rerun_flat_only.py` — Re-run flat side only (reuses vanilla baselines)
 
-### Delphi Round Table
-Independent assessment by Claude, GPT-4o, and Gemini:
-```bash
-python3 tests/delphi_roundtable.py --results tests/ab_results.json --output tests/delphi_report.md
-```
+## Credits
+
+Built by [Ben Olenick](https://github.com/benolenick). Uses [Hyphae](https://github.com/benolenick/hyphae) for long-term memory.
 
 ## License
 

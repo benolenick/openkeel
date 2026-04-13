@@ -1,4 +1,4 @@
-"""OpenKeel 2.0 — Main application window.
+"""OpenKeel v3 — Main application window.
 
 Clean terminal + bubble token saver + hyphae memory.
 """
@@ -24,7 +24,7 @@ class OpenKeelWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self._settings = load_settings()
-        self.setWindowTitle("OpenKeel v2")
+        self.setWindowTitle("OpenKeel v3")
         self.resize(1000, 650)
 
         # Set window icon
@@ -85,7 +85,7 @@ class OpenKeelWindow(QMainWindow):
 
         layout.addStretch()
 
-        # BPH dial
+        # Cost dial
         self._bph_dial = BPHDialWidget()
         layout.addWidget(self._bph_dial)
 
@@ -141,7 +141,7 @@ class OpenKeelWindow(QMainWindow):
         layout.setContentsMargins(12, 0, 12, 0)
         layout.setSpacing(16)
 
-        self._status_bph = QLabel("BPH: --")
+        self._status_bph = QLabel("Quota: --")
         self._status_bph.setObjectName("status")
         layout.addWidget(self._status_bph)
 
@@ -182,7 +182,7 @@ class OpenKeelWindow(QMainWindow):
         opacity = s.get("opacity", 100)
         self.setWindowOpacity(opacity / 100.0)
 
-        # BPH dial accent
+        # Cost dial accent
         self._bph_dial.set_accent(accent)
 
         # Status bar info
@@ -197,7 +197,7 @@ class OpenKeelWindow(QMainWindow):
         self._watcher = SessionWatcher(self, poll_ms=2000)
         self._watcher.token_update.connect(self._on_token_update)
         self._watcher.session_found.connect(
-            lambda p: self._status_bph.setText(f"Tracking: {Path(p).stem[:12]}...")
+            lambda p: self._status_bph.setText(f"Session: {Path(p).stem[:12]}...")
         )
         self._watcher.start()
 
@@ -215,21 +215,37 @@ class OpenKeelWindow(QMainWindow):
         if dial:
             dial.add_tokens(input_tok, output_tok, cache_read, cache_create)
 
-        # Also update BPH if it's a Sonnet call (main quota burner)
-        if lane == "sonnet":
-            self._bph_dial.log_completion(sonnet_calls=1)
+        # Update cost dial with actual tokens
+        self._bph_dial.log_tokens(input_tok, output_tok, lane)
 
     def _refresh_status(self):
         """Update status bar, hyphae dot, LLM dot."""
         from openkeel.quota import get_usage
 
-        # Quota
+        # Quota + runway
         try:
+            from datetime import datetime
             usage = get_usage()
-            bph = usage["bph"]
             pct = usage["pct"]
-            self._status_bph.setText(f"BPH: {bph:.1f}%/hr")
-            self._status_quota.setText(f"Quota: {pct:.1f}%")
+            oeq_used = usage["oeq_used"]
+            limit = usage["weekly_limit"]
+            week_start = usage.get("week_start", "")
+
+            # Calculate hours to reset
+            hours_to_reset = 168  # default 7 days
+            if week_start:
+                ws = datetime.strptime(week_start, "%Y-%m-%d")
+                reset = ws + __import__("datetime").timedelta(days=7)
+                hours_to_reset = max((reset - datetime.now()).total_seconds() / 3600, 0)
+
+            # Feed runway dial
+            self._bph_dial.set_quota_info(oeq_used, limit, hours_to_reset)
+
+            # Status bar
+            remaining_pct = max(100 - pct, 0)
+            days_left = hours_to_reset / 24
+            self._status_bph.setText(f"Quota: {remaining_pct:.0f}% left")
+            self._status_quota.setText(f"Reset: {days_left:.1f}d")
         except Exception:
             pass
 
@@ -293,7 +309,7 @@ class OpenKeelWindow(QMainWindow):
 
 
 def main():
-    """Launch the OpenKeel 2.0 GUI."""
+    """Launch the OpenKeel v3 GUI."""
     app = QApplication(sys.argv)
     app.setApplicationName("OpenKeel")
 
