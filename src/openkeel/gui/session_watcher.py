@@ -157,7 +157,7 @@ class SessionWatcher(QObject):
             return
 
         lane = d.get("lane", "")
-        if lane not in ("haiku", "local"):
+        if lane not in ("haiku", "local", "sonnet", "opus"):
             return
 
         input_tok = d.get("input_tokens", 0)

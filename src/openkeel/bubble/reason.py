@@ -6,6 +6,30 @@ import time
 from .config import get_config
 from . import ollama as local_llm
 
+import json as _json
+from pathlib import Path as _Path
+
+_TOKEN_EVENTS_FILE = _Path.home() / ".openkeel2" / "token_events.jsonl"
+
+
+def _log_token_event(lane, usage, model=None):
+    """Append a token event so the GUI dial can pick it up."""
+    try:
+        _TOKEN_EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        evt = {
+            "lane": lane,
+            "model": model or "",
+            "input_tokens": usage.get("input_tokens", 0),
+            "output_tokens": usage.get("output_tokens", 0),
+            "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+            "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+        }
+        with open(_TOKEN_EVENTS_FILE, "a") as f:
+            f.write(_json.dumps(evt) + "\n")
+    except Exception:
+        pass
+
+
 
 def reason_sonnet_cli(task, gathered_data, repo_path=None, hyphae_context=""):
     """Send pre-gathered data + Hyphae context to Sonnet CLI for reasoning.
@@ -42,7 +66,7 @@ def reason_sonnet_cli(task, gathered_data, repo_path=None, hyphae_context=""):
                 cfg["reason_model"],
                 "--no-session-persistence",
                 "--output-format",
-                "text",
+                "json",
                 prompt,
             ],
             capture_output=True,
@@ -51,7 +75,18 @@ def reason_sonnet_cli(task, gathered_data, repo_path=None, hyphae_context=""):
             stdin=subprocess.DEVNULL,
         )
         elapsed = round((time.time() - t0) * 1000)
-        return r.stdout, elapsed
+        # Parse JSON envelope; fall back to raw stdout on parse failure
+        try:
+            payload = _json.loads(r.stdout)
+            text = payload.get("result", "") or r.stdout
+            usage = payload.get("usage") or {}
+            model = next(iter((payload.get("modelUsage") or {}).keys()), cfg["reason_model"])
+            if usage:
+                lane = "opus" if "opus" in (model or "").lower() else "sonnet"
+                _log_token_event(lane, usage, model=model)
+        except Exception:
+            text = r.stdout
+        return text, elapsed
     except FileNotFoundError:
         raise RuntimeError(
             f"Claude CLI not found at {cfg['claude_bin']}. "
