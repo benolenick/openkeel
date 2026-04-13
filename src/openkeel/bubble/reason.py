@@ -31,7 +31,7 @@ def _log_token_event(lane, usage, model=None):
 
 
 
-def reason_sonnet_cli(task, gathered_data, repo_path=None, hyphae_context=""):
+def reason_sonnet_cli(task, gathered_data, repo_path=None, hyphae_context="", session_id=None):
     """Send pre-gathered data + Hyphae context to Sonnet CLI for reasoning.
 
     Returns (output_text, elapsed_ms).
@@ -58,17 +58,27 @@ def reason_sonnet_cli(task, gathered_data, repo_path=None, hyphae_context=""):
     )
 
     try:
+        argv = [
+            cfg["claude_bin"],
+            "-p",
+            "--model",
+            cfg["reason_model"],
+            "--output-format",
+            "json",
+            "--exclude-dynamic-system-prompt-sections",
+        ]
+        if session_id:
+            # On 2nd+ turn, resume the persisted conversation so the
+            # system prompt cache hits and Sonnet sees prior history.
+            argv += ["--resume", session_id]
+        else:
+            # First turn: no session yet. Don't pass --no-session-persistence
+            # so Claude Code persists the conversation under an auto-generated
+            # session_id (returned in the JSON envelope).
+            pass
+        argv.append(prompt)
         r = subprocess.run(
-            [
-                cfg["claude_bin"],
-                "-p",
-                "--model",
-                cfg["reason_model"],
-                "--no-session-persistence",
-                "--output-format",
-                "json",
-                prompt,
-            ],
+            argv,
             capture_output=True,
             text=True,
             timeout=300,
@@ -76,17 +86,19 @@ def reason_sonnet_cli(task, gathered_data, repo_path=None, hyphae_context=""):
         )
         elapsed = round((time.time() - t0) * 1000)
         # Parse JSON envelope; fall back to raw stdout on parse failure
+        sid = session_id
         try:
             payload = _json.loads(r.stdout)
             text = payload.get("result", "") or r.stdout
             usage = payload.get("usage") or {}
             model = next(iter((payload.get("modelUsage") or {}).keys()), cfg["reason_model"])
+            sid = payload.get("session_id") or sid
             if usage:
                 lane = "opus" if "opus" in (model or "").lower() else "sonnet"
                 _log_token_event(lane, usage, model=model)
         except Exception:
             text = r.stdout
-        return text, elapsed
+        return text, elapsed, sid
     except FileNotFoundError:
         raise RuntimeError(
             f"Claude CLI not found at {cfg['claude_bin']}. "
@@ -94,7 +106,7 @@ def reason_sonnet_cli(task, gathered_data, repo_path=None, hyphae_context=""):
         )
     except Exception as e:
         elapsed = round((time.time() - t0) * 1000)
-        return f"[CLI error: {e}]", elapsed
+        return f"[CLI error: {e}]", elapsed, session_id
 
 
 def reason_local(task, gathered_data, model, repo_path=None, hyphae_context=""):

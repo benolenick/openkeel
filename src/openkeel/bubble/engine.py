@@ -17,7 +17,7 @@ from . import settings
 LOG_DIR = Path.home() / ".openkeel2" / "logs"
 
 
-def run(task, repo_path, verbose=True, project=None, local_mode=None):
+def run(task, repo_path, verbose=True, project=None, local_mode=None, session_id=None):
     """Run the bubble v4 pattern. Returns (output, api_cost, details)."""
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -170,8 +170,9 @@ def run(task, repo_path, verbose=True, project=None, local_mode=None):
     else:
         if verbose:
             print("[bubble] Reasoning via Sonnet CLI...", file=sys.stderr)
-        output, reason_ms = reason_sonnet_cli(
-            task, gathered, repo_path, hyphae_context=hyphae_context
+        output, reason_ms, session_id = reason_sonnet_cli(
+            task, gathered, repo_path, hyphae_context=hyphae_context,
+            session_id=session_id,
         )
 
     wall_ms = round((time.time() - t0) * 1000)
@@ -199,6 +200,7 @@ def run(task, repo_path, verbose=True, project=None, local_mode=None):
         "escalated": escalated,
         "cascade": cascade_info,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "session_id": session_id,
     }
     _save_log(run_id, log)
 

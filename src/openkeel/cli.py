@@ -107,9 +107,15 @@ def _run_chat(args):
     print("\033[1;36m" + "=" * 60 + "\033[0m")
     print()
 
-    # Conversation history — keep last N turns
+    # Conversation history — keep last N turns (used for chat continuity in the
+    # bubble *prompt*; cache reuse across Sonnet calls is handled separately
+    # via session_id below).
     history = []
     MAX_HISTORY_TURNS = 3
+
+    # Sonnet CLI session id — reused across turns so Anthropic's prompt cache
+    # hits and we don't re-pay cache_creation on every turn.
+    session_id = None
 
     while True:
         try:
@@ -135,7 +141,12 @@ def _run_chat(args):
             task = user_input
 
         try:
-            output, cost, log = run(task, repo, verbose=False, local_mode=runner)
+            output, cost, log = run(
+                task, repo, verbose=False, local_mode=runner, session_id=session_id
+            )
+            # Capture the persisted Sonnet session id so the next turn resumes it.
+            if isinstance(log, dict) and log.get("session_id"):
+                session_id = log["session_id"]
         except Exception as e:
             print(f"\033[31m[bubble error] {e}\033[0m\n")
             continue
