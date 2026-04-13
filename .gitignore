@@ -1,0 +1,10 @@
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
+.eggs/
+*.log
+.openkeel2/
+tests/ab_results*.json
+

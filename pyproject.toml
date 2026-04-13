@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openkeel"
+version = "2.0.0"
+description = "AI agent toolkit — token-saving delegation + long-term memory for Claude Code"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [{name = "Ben Olenick"}]
+keywords = ["ai", "agents", "claude", "token-saving", "memory", "llm"]
+dependencies = [
+    "httpx>=0.24.0",
+    "pyte>=0.8",
+    "PySide6>=6.5",
+    "ptyprocess>=0.7; sys_platform != 'win32'",
+]
+
+[project.optional-dependencies]
+hyphae-server = ["hyphae>=0.1.0"]
+
+[project.scripts]
+openkeel = "openkeel.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
