@@ -1,4 +1,8 @@
-"""Watch Claude Code session JSONL files for exact token usage."""
+"""Watch Claude Code session JSONL files for exact token usage.
+
+Also tails ~/.openkeel2/token_events.jsonl for Haiku API and local LLM
+token events that don't appear in Claude Code's logs.
+"""
 
 import json
 import os
@@ -9,28 +13,33 @@ from PySide6.QtCore import QObject, QTimer, Signal
 
 
 CLAUDE_DIR = Path.home() / ".claude"
+TOKEN_EVENTS_FILE = Path.home() / ".openkeel2" / "token_events.jsonl"
 
 
 class SessionWatcher(QObject):
-    """Tails the active Claude Code conversation JSONL for token usage.
+    """Tails Claude Code JSONL + OpenKeel token events for token usage.
 
-    Emits token_update(model, input_tok, output_tok, cache_read, cache_create)
-    whenever a new assistant message with usage data appears.
+    Emits token_update(lane, input_tok, output_tok, cache_read, cache_create)
+    whenever new token usage data appears.
     """
 
-    token_update = Signal(str, int, int, int, int)  # model, in, out, cache_read, cache_create
+    token_update = Signal(str, int, int, int, int)  # lane, in, out, cache_read, cache_create
     session_found = Signal(str)  # session file path
 
     def __init__(self, parent=None, poll_ms=3000):
         super().__init__(parent)
         self._poll_ms = poll_ms
         self._current_file = None
-        self._file_pos = 0  # byte offset we've read up to
+        self._file_pos = 0  # byte offset for Claude JSONL
+        self._events_pos = 0  # byte offset for token_events.jsonl
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
 
     def start(self):
         self._find_session()
+        # Start tailing token_events from end
+        if TOKEN_EVENTS_FILE.exists():
+            self._events_pos = TOKEN_EVENTS_FILE.stat().st_size
         self._timer.start(self._poll_ms)
 
     def stop(self):
@@ -63,6 +72,14 @@ class SessionWatcher(QObject):
         # Check if a newer session file appeared
         self._find_session()
 
+        # Tail Claude Code JSONL (Sonnet/Opus tokens)
+        self._tail_claude_jsonl()
+
+        # Tail OpenKeel token events (Haiku/Local tokens)
+        self._tail_token_events()
+
+    def _tail_claude_jsonl(self):
+        """Read new lines from Claude Code's session JSONL."""
         if not self._current_file or not self._current_file.exists():
             return
 
@@ -79,12 +96,36 @@ class SessionWatcher(QObject):
             for line in new_data.strip().split("\n"):
                 if not line.strip():
                     continue
-                self._parse_line(line)
+                self._parse_claude_line(line)
 
         except Exception:
             pass
 
-    def _parse_line(self, line: str):
+    def _tail_token_events(self):
+        """Read new lines from OpenKeel's token_events.jsonl (Haiku + Local)."""
+        if not TOKEN_EVENTS_FILE.exists():
+            return
+
+        try:
+            size = TOKEN_EVENTS_FILE.stat().st_size
+            if size <= self._events_pos:
+                return
+
+            with open(TOKEN_EVENTS_FILE, "r") as f:
+                f.seek(self._events_pos)
+                new_data = f.read()
+                self._events_pos = f.tell()
+
+            for line in new_data.strip().split("\n"):
+                if not line.strip():
+                    continue
+                self._parse_event_line(line)
+
+        except Exception:
+            pass
+
+    def _parse_claude_line(self, line: str):
+        """Parse a Claude Code JSONL line for Sonnet/Opus token usage."""
         try:
             d = json.loads(line)
         except json.JSONDecodeError:
@@ -99,14 +140,30 @@ class SessionWatcher(QObject):
             return
 
         model = msg.get("model", "unknown")
-
-        # Normalize model name to lane
         lane = self._model_to_lane(model)
 
         input_tok = usage.get("input_tokens", 0)
         output_tok = usage.get("output_tokens", 0)
         cache_read = usage.get("cache_read_input_tokens", 0)
         cache_create = usage.get("cache_creation_input_tokens", 0)
+
+        self.token_update.emit(lane, input_tok, output_tok, cache_read, cache_create)
+
+    def _parse_event_line(self, line: str):
+        """Parse an OpenKeel token event (Haiku/Local)."""
+        try:
+            d = json.loads(line)
+        except json.JSONDecodeError:
+            return
+
+        lane = d.get("lane", "")
+        if lane not in ("haiku", "local"):
+            return
+
+        input_tok = d.get("input_tokens", 0)
+        output_tok = d.get("output_tokens", 0)
+        cache_read = d.get("cache_read_input_tokens", 0)
+        cache_create = d.get("cache_creation_input_tokens", 0)
 
         self.token_update.emit(lane, input_tok, output_tok, cache_read, cache_create)
 

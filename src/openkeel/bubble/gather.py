@@ -141,6 +141,14 @@ def haiku_api(prompt, system, max_tokens=1024, max_rounds=5, tools=None):
         messages.append({"role": "user", "content": tool_results})
 
     cost = (total_in * 0.80 + total_out * 4.00) / 1_000_000
+
+    # Emit token event for GUI dials
+    try:
+        from openkeel.token_events import emit as _emit_tok
+        _emit_tok("haiku", total_in, total_out)
+    except Exception:
+        pass
+
     return "\n".join(all_text), total_in, total_out, cost
 
 

@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QColor, QPalette
+from PySide6.QtGui import QFont, QColor, QPalette, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QFrame,
@@ -24,8 +24,18 @@ class OpenKeelWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self._settings = load_settings()
-        self.setWindowTitle("OpenKeel 2.0")
+        self.setWindowTitle("OpenKeel v2")
         self.resize(1000, 650)
+
+        # Set window icon
+        icon_path = Path(__file__).parent.parent.parent.parent / "assets" / "openkeelv2.svg"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
+        else:
+            # Fallback to PNG
+            png_path = icon_path.with_name("openkeelv2_256.png")
+            if png_path.exists():
+                self.setWindowIcon(QIcon(str(png_path)))
 
         self._build_ui()
         self._apply_theme()

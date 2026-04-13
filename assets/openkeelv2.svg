@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1e2e"/>
+      <stop offset="100%" style="stop-color:#0d1117"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#58a6ff"/>
+      <stop offset="100%" style="stop-color:#bc8cff"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#44DDAA"/>
+      <stop offset="100%" style="stop-color:#39d353"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect x="8" y="8" width="240" height="240" rx="48" ry="48" fill="url(#bg)" stroke="#30363d" stroke-width="2"/>
+
+  <!-- Keel / ship hull shape — stylized V for delegation flow -->
+  <!-- Central keel line -->
+  <path d="M128 40 L128 180" stroke="url(#accent)" stroke-width="6" stroke-linecap="round" fill="none"/>
+
+  <!-- Left delegation arc (Haiku) -->
+  <path d="M128 80 Q72 110 72 160" stroke="#44DDAA" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.9"/>
+
+  <!-- Right delegation arc (Local) -->
+  <path d="M128 80 Q184 110 184 160" stroke="#FFAA22" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.9"/>
+
+  <!-- Sonnet dot (top — planner) -->
+  <circle cx="128" cy="52" r="10" fill="#4499FF"/>
+
+  <!-- Haiku dot (bottom left — executor) -->
+  <circle cx="72" cy="160" r="8" fill="#44DDAA"/>
+
+  <!-- Local dot (bottom right — executor) -->
+  <circle cx="184" cy="160" r="8" fill="#FFAA22"/>
+
+  <!-- Sonnet dot (bottom center — synthesizer) -->
+  <circle cx="128" cy="180" r="10" fill="#4499FF"/>
+
+  <!-- Converging lines back to synthesizer -->
+  <path d="M72 160 Q100 180 128 180" stroke="#44DDAA" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.7"/>
+  <path d="M184 160 Q156 180 128 180" stroke="#FFAA22" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.7"/>
+
+  <!-- Small token sparks along the arcs -->
+  <circle cx="95" cy="98" r="3" fill="#44DDAA" opacity="0.6"/>
+  <circle cx="161" cy="98" r="3" fill="#FFAA22" opacity="0.6"/>
+  <circle cx="80" cy="130" r="2.5" fill="#44DDAA" opacity="0.5"/>
+  <circle cx="176" cy="130" r="2.5" fill="#FFAA22" opacity="0.5"/>
+
+  <!-- "OK2" text at bottom -->
+  <text x="128" y="226" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="800" fill="#c9d1d9" letter-spacing="2">OK2</text>
+</svg>

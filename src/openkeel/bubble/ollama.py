@@ -82,7 +82,19 @@ def keep_warm(model, duration="24h", verbose=False):
 
 
 def generate(prompt, model, system=None, max_tokens=1024):
-    """Generate text with a local model. Returns (response_text, elapsed_ms) or ("", 0).
+    """Generate text with a local model.
+
+    Returns (response_text, elapsed_ms) or ("", 0) for backward compat.
+    Use generate_with_usage() for full token counts.
+
+    Also tracks usage stats to ~/.openkeel2/usage.json.
+    """
+    text, elapsed, _, _ = generate_with_usage(prompt, model, system=system, max_tokens=max_tokens)
+    return text, elapsed
+
+
+def generate_with_usage(prompt, model, system=None, max_tokens=1024):
+    """Generate text with a local model. Returns (text, elapsed_ms, input_tok, output_tok).
 
     Also tracks usage stats to ~/.openkeel2/usage.json.
     """
@@ -102,12 +114,21 @@ def generate(prompt, model, system=None, max_tokens=1024):
     data = _post("/api/generate", payload)
     if data:
         elapsed = data.get("total_duration", 0) // 1_000_000  # ns -> ms
+        input_tok = data.get("prompt_eval_count", 0)
+        output_tok = data.get("eval_count", 0)
 
         # Track usage stats from Ollama's response
         _record_usage(model, data)
 
-        return data.get("response", ""), elapsed
-    return "", 0
+        # Emit token event for GUI dials
+        try:
+            from openkeel.token_events import emit as _emit_tok
+            _emit_tok("local", input_tok, output_tok)
+        except Exception:
+            pass
+
+        return data.get("response", ""), elapsed, input_tok, output_tok
+    return "", 0, 0, 0
 
 
 def _record_usage(model, response_data):

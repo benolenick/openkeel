@@ -122,9 +122,13 @@ class BPHDialWidget(QWidget):
 
 
 class MiniDialWidget(QWidget):
-    """Small arc gauge for per-model token tracking (Opus/Sonnet/Haiku/Local)."""
+    """Small arc gauge for per-model token rate (tokens/min, decays over time).
 
-    # Model lane colors
+    Shows recent token throughput rather than cumulative total. The arc fills
+    based on tokens/min over a sliding window, and decays back to zero when idle.
+    Tooltip shows cumulative totals for reference.
+    """
+
     LANE_COLORS = {
         "opus": "#CC77FF",   # purple
         "sonnet": "#4499FF",  # blue
@@ -132,18 +136,28 @@ class MiniDialWidget(QWidget):
         "local": "#FFAA22",   # amber
     }
 
+    WINDOW_SECS = 120  # sliding window for rate calculation
+
     def __init__(self, lane: str, parent=None):
         super().__init__(parent)
         self.setFixedSize(48, 48)
         self._lane = lane
         self._color = self.LANE_COLORS.get(lane, "#888888")
+
+        # Rate tracking — list of (timestamp, token_count)
+        self._events = []
+
+        # Cumulative totals (for tooltip)
         self._total_tokens = 0
-        self._display_tokens = 0
-        self._max_tokens = 100_000  # scale auto-adjusts
         self._input_tok = 0
         self._output_tok = 0
         self._cache_read = 0
         self._calls = 0
+
+        # Display
+        self._rate = 0.0          # tokens/min (current)
+        self._display_rate = 0.0  # animated
+        self._max_rate = 5000.0   # auto-scales
 
         self._anim_timer = QTimer(self)
         self._anim_timer.timeout.connect(self._animate)
@@ -151,18 +165,40 @@ class MiniDialWidget(QWidget):
 
     def add_tokens(self, input_tok: int, output_tok: int, cache_read: int = 0, cache_create: int = 0):
         """Add tokens from a single API call."""
+        total = input_tok + output_tok + cache_read + cache_create
         self._input_tok += input_tok + cache_read + cache_create
         self._output_tok += output_tok
-        self._total_tokens += input_tok + output_tok + cache_read + cache_create
+        self._total_tokens += total
         self._calls += 1
-        # Auto-scale max
-        if self._total_tokens > self._max_tokens * 0.8:
-            self._max_tokens = int(self._total_tokens * 1.5)
+        self._events.append((time.time(), total))
+        self._recalc_rate()
         self._update_tooltip()
+
+    def _recalc_rate(self):
+        """Calculate tokens/min over the sliding window."""
+        now = time.time()
+        cutoff = now - self.WINDOW_SECS
+        self._events = [(t, n) for t, n in self._events if t > cutoff]
+
+        if not self._events:
+            self._rate = 0.0
+            return
+
+        total_in_window = sum(n for _, n in self._events)
+        window_span = now - self._events[0][0]
+        if window_span < 1:
+            window_span = 1  # avoid division by zero on first event
+
+        self._rate = (total_in_window / window_span) * 60  # tokens per minute
+
+        # Auto-scale
+        if self._rate > self._max_rate * 0.8:
+            self._max_rate = self._rate * 1.5
 
     def _update_tooltip(self):
         self.setToolTip(
             f"{self._lane.upper()}\n"
+            f"Rate: {self._rate:,.0f} tok/min\n"
             f"Calls: {self._calls}\n"
             f"Input: {self._input_tok:,}\n"
             f"Output: {self._output_tok:,}\n"
@@ -170,11 +206,14 @@ class MiniDialWidget(QWidget):
         )
 
     def _animate(self):
-        diff = self._total_tokens - self._display_tokens
-        if abs(diff) < 10:
-            self._display_tokens = self._total_tokens
+        # Recalc rate every frame so it decays when no new tokens arrive
+        self._recalc_rate()
+
+        diff = self._rate - self._display_rate
+        if abs(diff) < 1:
+            self._display_rate = self._rate
         else:
-            self._display_tokens += diff * 0.15
+            self._display_rate += diff * 0.12
         self.update()
 
     def paintEvent(self, event):
@@ -193,7 +232,7 @@ class MiniDialWidget(QWidget):
         p.drawArc(rect, 225 * 16, -270 * 16)
 
         # Value arc
-        frac = min(self._display_tokens / max(self._max_tokens, 1), 1.0)
+        frac = min(self._display_rate / max(self._max_rate, 1), 1.0)
         if frac > 0.005:
             pen = QPen(QColor(self._color), 3)
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
@@ -201,11 +240,11 @@ class MiniDialWidget(QWidget):
             span = int(-270 * frac * 16)
             p.drawArc(rect, 225 * 16, span)
 
-        # Token count (compact)
+        # Rate display (compact)
         p.setPen(QColor("#bbbbbb"))
         font = QFont("monospace", 7, QFont.Weight.Bold)
         p.setFont(font)
-        count_text = self._format_count(self._display_tokens)
+        count_text = self._format_count(self._display_rate)
         p.drawText(QRectF(0, cy - 8, w, 16), Qt.AlignmentFlag.AlignCenter, count_text)
 
         # Lane label
@@ -220,7 +259,7 @@ class MiniDialWidget(QWidget):
 
     @staticmethod
     def _format_count(n: float) -> str:
-        """Compact token count: 0, 1.2K, 45K, 1.2M."""
+        """Compact rate: 0, 1.2K, 45K, 1.2M tok/min."""
         n = int(n)
         if n < 1000:
             return str(n)

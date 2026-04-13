@@ -74,16 +74,28 @@ class Tracker:
     def __init__(self):
         self.sonnet_calls = 0
         self.sonnet_wall_ms = 0
+        self.sonnet_input_tok = 0
+        self.sonnet_output_tok = 0
+        self.sonnet_cache_create_tok = 0
+        self.sonnet_cache_read_tok = 0
+        self.sonnet_cost_usd = 0.0
         self.haiku_calls = 0
         self.haiku_input_tok = 0
         self.haiku_output_tok = 0
         self.haiku_cost = 0.0
         self.local_calls = 0
         self.local_ms = 0
+        self.local_input_tok = 0
+        self.local_output_tok = 0
 
-    def log_sonnet(self, wall_ms):
+    def log_sonnet(self, wall_ms, input_tok=0, output_tok=0, cache_create=0, cache_read=0, cost_usd=0.0):
         self.sonnet_calls += 1
         self.sonnet_wall_ms += wall_ms
+        self.sonnet_input_tok += input_tok
+        self.sonnet_output_tok += output_tok
+        self.sonnet_cache_create_tok += cache_create
+        self.sonnet_cache_read_tok += cache_read
+        self.sonnet_cost_usd += cost_usd
 
     def log_haiku(self, in_tok, out_tok, cost):
         self.haiku_calls += 1
@@ -91,20 +103,29 @@ class Tracker:
         self.haiku_output_tok += out_tok
         self.haiku_cost += cost
 
-    def log_local(self, ms):
+    def log_local(self, ms, input_tok=0, output_tok=0):
         self.local_calls += 1
         self.local_ms += ms
+        self.local_input_tok += input_tok
+        self.local_output_tok += output_tok
 
     def to_dict(self):
         return {
             "sonnet_calls": self.sonnet_calls,
             "sonnet_wall_ms": self.sonnet_wall_ms,
+            "sonnet_input_tok": self.sonnet_input_tok,
+            "sonnet_output_tok": self.sonnet_output_tok,
+            "sonnet_cache_create_tok": self.sonnet_cache_create_tok,
+            "sonnet_cache_read_tok": self.sonnet_cache_read_tok,
+            "sonnet_cost_usd": round(self.sonnet_cost_usd, 6),
             "haiku_calls": self.haiku_calls,
             "haiku_input_tok": self.haiku_input_tok,
             "haiku_output_tok": self.haiku_output_tok,
             "haiku_cost": round(self.haiku_cost, 6),
             "local_calls": self.local_calls,
             "local_ms": self.local_ms,
+            "local_input_tok": self.local_input_tok,
+            "local_output_tok": self.local_output_tok,
         }
 
 
@@ -116,12 +137,26 @@ def call_sonnet(prompt, tracker):
     try:
         r = subprocess.run(
             [cfg["claude_bin"], "-p", "--model", cfg["reason_model"],
-             "--no-session-persistence", "--output-format", "text", prompt],
-            capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL,
+             "--no-session-persistence", "--output-format", "json"],
+            capture_output=True, text=True, timeout=300, input=prompt,
         )
         ms = int((time.time() - t0) * 1000)
-        tracker.log_sonnet(ms)
-        return r.stdout.strip()
+        # Parse JSON to get exact token usage
+        try:
+            data = json.loads(r.stdout)
+            usage = data.get("usage", {})
+            tracker.log_sonnet(
+                ms,
+                input_tok=usage.get("input_tokens", 0),
+                output_tok=usage.get("output_tokens", 0),
+                cache_create=usage.get("cache_creation_input_tokens", 0),
+                cache_read=usage.get("cache_read_input_tokens", 0),
+                cost_usd=data.get("total_cost_usd", 0.0),
+            )
+            return data.get("result", "").strip()
+        except (json.JSONDecodeError, KeyError):
+            tracker.log_sonnet(ms)
+            return r.stdout.strip()
     except Exception as e:
         ms = int((time.time() - t0) * 1000)
         tracker.log_sonnet(ms)
@@ -137,8 +172,8 @@ def call_haiku(prompt, system, tracker, tools=None, max_rounds=1):
 
 
 def call_local(prompt, model, tracker, max_tokens=1024):
-    text, elapsed = local_llm.generate(prompt, model, max_tokens=max_tokens)
-    tracker.log_local(elapsed)
+    text, elapsed, in_tok, out_tok = local_llm.generate_with_usage(prompt, model, max_tokens=max_tokens)
+    tracker.log_local(elapsed, input_tok=in_tok, output_tok=out_tok)
     return text
 
 
@@ -357,9 +392,17 @@ def compute_aggregates(results):
     all_f_quality = []
     total_v_sonnet = 0
     total_f_sonnet = 0
+    total_v_sonnet_in = 0
+    total_v_sonnet_out = 0
+    total_v_sonnet_cost = 0.0
+    total_f_sonnet_in = 0
+    total_f_sonnet_out = 0
+    total_f_sonnet_cost = 0.0
     total_haiku_cost = 0.0
     total_haiku_tok = 0
     total_local = 0
+    total_local_in = 0
+    total_local_out = 0
     repro = {}
 
     for entry in results:
@@ -370,9 +413,17 @@ def compute_aggregates(results):
             all_reductions.append(red)
         total_v_sonnet += entry["vanilla"]["sonnet_calls"]
         total_f_sonnet += entry["flat"]["sonnet_calls"]
+        total_v_sonnet_in += entry["vanilla"].get("sonnet_input_tok", 0)
+        total_v_sonnet_out += entry["vanilla"].get("sonnet_output_tok", 0)
+        total_v_sonnet_cost += entry["vanilla"].get("sonnet_cost_usd", 0.0)
+        total_f_sonnet_in += entry["flat"].get("sonnet_input_tok", 0)
+        total_f_sonnet_out += entry["flat"].get("sonnet_output_tok", 0)
+        total_f_sonnet_cost += entry["flat"].get("sonnet_cost_usd", 0.0)
         total_haiku_cost += entry["flat"]["haiku_cost"]
         total_haiku_tok += entry["flat"]["haiku_input_tok"] + entry["flat"]["haiku_output_tok"]
         total_local += entry["flat"]["local_calls"]
+        total_local_in += entry["flat"].get("local_input_tok", 0)
+        total_local_out += entry["flat"].get("local_output_tok", 0)
 
         # Quality
         q = entry.get("quality", {})
@@ -408,9 +459,17 @@ def compute_aggregates(results):
             **_stats(all_reductions),
             "total_vanilla_sonnet": total_v_sonnet,
             "total_flat_sonnet": total_f_sonnet,
+            "total_vanilla_sonnet_input_tok": total_v_sonnet_in,
+            "total_vanilla_sonnet_output_tok": total_v_sonnet_out,
+            "total_vanilla_sonnet_cost": round(total_v_sonnet_cost, 6),
+            "total_flat_sonnet_input_tok": total_f_sonnet_in,
+            "total_flat_sonnet_output_tok": total_f_sonnet_out,
+            "total_flat_sonnet_cost": round(total_f_sonnet_cost, 6),
             "total_haiku_cost": round(total_haiku_cost, 4),
             "total_haiku_tokens": total_haiku_tok,
             "total_local_calls": total_local,
+            "total_local_input_tok": total_local_in,
+            "total_local_output_tok": total_local_out,
             "total_oeq_saved": (total_v_sonnet - total_f_sonnet) * 2600,
             "overall_reduction_pct": round((1 - total_f_sonnet / max(total_v_sonnet, 1)) * 100, 1),
         },
@@ -459,12 +518,19 @@ def generate_report(metadata, results, aggregates):
     lines.append(f"**Total wall time**: {metadata['total_wall_ms'] / 60000:.1f} minutes\n")
 
     lines.append("## Executive Summary\n")
+    v_total_tok = ov['total_vanilla_sonnet_input_tok'] + ov['total_vanilla_sonnet_output_tok']
+    f_total_tok = ov['total_flat_sonnet_input_tok'] + ov['total_flat_sonnet_output_tok']
+    tok_saved = v_total_tok - f_total_tok
+    tok_red = round((1 - f_total_tok / max(v_total_tok, 1)) * 100, 1) if v_total_tok > 0 else 0
     lines.append(f"Across {ov['n']} unique tasks (5 easy, 5 medium, 5 hard), bubble delegation achieved "
                  f"a **{ov['overall_reduction_pct']}% reduction** in Sonnet CLI calls "
-                 f"({ov['total_vanilla_sonnet']}→{ov['total_flat_sonnet']}), saving **{ov['total_oeq_saved']:,} OEQ**. "
-                 f"The Haiku API cost for delegation was **${ov['total_haiku_cost']:.2f}** total "
+                 f"({ov['total_vanilla_sonnet']}→{ov['total_flat_sonnet']}), saving **{ov['total_oeq_saved']:,} OEQ**.\n")
+    lines.append(f"**Directly measured Sonnet tokens**: vanilla used **{v_total_tok:,}** total tokens, "
+                 f"flat used **{f_total_tok:,}** — a reduction of **{tok_saved:,} tokens ({tok_red}%)**. "
+                 f"Sonnet API cost dropped from **${ov['total_vanilla_sonnet_cost']:.4f}** to **${ov['total_flat_sonnet_cost']:.4f}**.\n")
+    lines.append(f"The Haiku API cost for delegation was **${ov['total_haiku_cost']:.2f}** total "
                  f"({ov['total_haiku_tokens']:,} tokens). "
-                 f"Mean reduction: {ov['mean']}% (std={ov['std']}%).\n")
+                 f"Mean Sonnet call reduction: {ov['mean']}% (std={ov['std']}%).\n")
 
     if agg["quality"]["vanilla_mean"] is not None:
         lines.append(f"Quality scoring (LLM-as-judge): vanilla={agg['quality']['vanilla_mean']}/10, "
@@ -478,12 +544,96 @@ def generate_report(metadata, results, aggregates):
     lines.append("- Quality scored blind by Claude and Gemini (A/B assignment randomized)")
     lines.append("- All metrics logged: Sonnet calls, Haiku tokens/cost, local LLM calls, wall time, output length\n")
 
+    # Model versions
+    mv = metadata.get("model_versions", {})
+    if mv:
+        lines.append("### Model Versions\n")
+        lines.append(f"- **Sonnet CLI**: `{mv.get('sonnet_cli_model', '?')}` via `{mv.get('claude_cli_version', '?')}`")
+        lines.append(f"- **Haiku API**: `{mv.get('haiku_api_model', '?')}`")
+        lines.append(f"- **Local LLM**: `{mv.get('local_model', '?')}` via Ollama\n")
+
+    lines.append("### How Tokens Are Measured\n")
+    lines.append("| Model | Source | Method |")
+    lines.append("|-------|--------|--------|")
+    lines.append("| **Sonnet** | Claude CLI `--output-format json` | Exact: `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`, `total_cost_usd` from provider |")
+    lines.append("| **Haiku** | Anthropic API `usage` field | Exact: `input_tokens`, `output_tokens` accumulated across multi-round tool use. Cost: `(in * $0.80 + out * $4.00) / 1M` |")
+    lines.append("| **Local** | Ollama API response | Exact: `prompt_eval_count` (input), `eval_count` (output). Cost: $0 (on-device) |")
+    lines.append("")
+    lines.append("> **Transparency note**: Cache tokens (creation + read) are tracked and reported separately from base input tokens. "
+                 "Haiku cost uses published pricing, not API-reported billing. Sonnet cost uses the provider-reported `total_cost_usd`.\n")
+
     lines.append("## Results by Difficulty\n")
     lines.append("| Difficulty | N | Mean Reduction | Std | Min | Max |")
     lines.append("|-----------|---|:---:|:---:|:---:|:---:|")
     for d in ("easy", "medium", "hard"):
         s = agg["by_difficulty"][d]
         lines.append(f"| {d} | {s['n']} | {s['mean']}% | {s['std']}% | {s['min']}% | {s['max']}% |")
+    lines.append("")
+
+    # Token impact by model — exact measurements
+    lines.append("## Token Usage by Model (Exact Measurements)\n")
+    lines.append("All token counts are **directly measured** from Claude CLI JSON output and Haiku API responses. "
+                 "Local LLM tokens are free (on-device via Ollama).\n")
+
+    total_f_haiku_in = sum(r["flat"]["haiku_input_tok"] for r in results if not r.get("is_repeat"))
+    total_f_haiku_out = sum(r["flat"]["haiku_output_tok"] for r in results if not r.get("is_repeat"))
+
+    v_sonnet_total = ov['total_vanilla_sonnet_input_tok'] + ov['total_vanilla_sonnet_output_tok']
+    f_sonnet_total = ov['total_flat_sonnet_input_tok'] + ov['total_flat_sonnet_output_tok']
+    sonnet_tok_saved = v_sonnet_total - f_sonnet_total
+    sonnet_tok_reduction = round((1 - f_sonnet_total / max(v_sonnet_total, 1)) * 100, 1)
+
+    lines.append("| Model | Metric | Vanilla | Flat (Bubble) | Delta |")
+    lines.append("|-------|--------|------:|------:|------:|")
+    lines.append(f"| **Sonnet** | CLI calls | {ov['total_vanilla_sonnet']} | {ov['total_flat_sonnet']} | **-{ov['total_vanilla_sonnet'] - ov['total_flat_sonnet']}** |")
+    lines.append(f"| **Sonnet** | Input tokens | {ov['total_vanilla_sonnet_input_tok']:,} | {ov['total_flat_sonnet_input_tok']:,} | -{ov['total_vanilla_sonnet_input_tok'] - ov['total_flat_sonnet_input_tok']:,} |")
+    lines.append(f"| **Sonnet** | Output tokens | {ov['total_vanilla_sonnet_output_tok']:,} | {ov['total_flat_sonnet_output_tok']:,} | -{ov['total_vanilla_sonnet_output_tok'] - ov['total_flat_sonnet_output_tok']:,} |")
+    lines.append(f"| **Sonnet** | **Total tokens** | **{v_sonnet_total:,}** | **{f_sonnet_total:,}** | **-{sonnet_tok_saved:,} ({sonnet_tok_reduction}%)** |")
+    # Cache tokens
+    v_cache_create = sum(r["vanilla"].get("sonnet_cache_create_tok", 0) for r in results if not r.get("is_repeat"))
+    v_cache_read = sum(r["vanilla"].get("sonnet_cache_read_tok", 0) for r in results if not r.get("is_repeat"))
+    f_cache_create = sum(r["flat"].get("sonnet_cache_create_tok", 0) for r in results if not r.get("is_repeat"))
+    f_cache_read = sum(r["flat"].get("sonnet_cache_read_tok", 0) for r in results if not r.get("is_repeat"))
+    lines.append(f"| **Sonnet** | Cache create tokens | {v_cache_create:,} | {f_cache_create:,} | |")
+    lines.append(f"| **Sonnet** | Cache read tokens | {v_cache_read:,} | {f_cache_read:,} | |")
+    lines.append(f"| **Sonnet** | API cost (USD) | ${ov['total_vanilla_sonnet_cost']:.4f} | ${ov['total_flat_sonnet_cost']:.4f} | -${ov['total_vanilla_sonnet_cost'] - ov['total_flat_sonnet_cost']:.4f} |")
+    lines.append(f"| **Sonnet** | OEQ burn | {ov['total_vanilla_sonnet'] * 2600:,} | {ov['total_flat_sonnet'] * 2600:,} | **-{ov['total_oeq_saved']:,}** |")
+    lines.append(f"| **Sonnet** | Wall time | {sum(r['vanilla']['sonnet_wall_ms'] for r in results if not r.get('is_repeat'))//1000}s | {sum(r['flat']['sonnet_wall_ms'] for r in results if not r.get('is_repeat'))//1000}s | |")
+    lines.append(f"| **Haiku** | API calls | 0 | {sum(r['flat']['haiku_calls'] for r in results if not r.get('is_repeat'))} | |")
+    lines.append(f"| **Haiku** | Input tokens | 0 | {total_f_haiku_in:,} | |")
+    lines.append(f"| **Haiku** | Output tokens | 0 | {total_f_haiku_out:,} | |")
+    lines.append(f"| **Haiku** | Total tokens | 0 | {total_f_haiku_in + total_f_haiku_out:,} | |")
+    lines.append(f"| **Haiku** | API cost | $0 | ${ov['total_haiku_cost']:.2f} | |")
+    lines.append(f"| **Local** | LLM calls | 0 | {ov['total_local_calls']} | (free) |")
+    lines.append(f"| **Local** | Input tokens | 0 | {ov.get('total_local_input_tok', 0):,} | |")
+    lines.append(f"| **Local** | Output tokens | 0 | {ov.get('total_local_output_tok', 0):,} | |")
+
+    # Total system tokens
+    v_system_total = v_sonnet_total  # vanilla only uses Sonnet
+    f_system_total = f_sonnet_total + (total_f_haiku_in + total_f_haiku_out) + ov.get('total_local_input_tok', 0) + ov.get('total_local_output_tok', 0)
+    lines.append(f"| | | | | |")
+    lines.append(f"| **ALL MODELS** | Total tokens | **{v_system_total:,}** | **{f_system_total:,}** | **{'+' if f_system_total > v_system_total else ''}{f_system_total - v_system_total:,}** |")
+    lines.append(f"| **ALL MODELS** | Total cost | **${ov['total_vanilla_sonnet_cost']:.4f}** | **${ov['total_flat_sonnet_cost'] + ov['total_haiku_cost']:.4f}** | **${(ov['total_flat_sonnet_cost'] + ov['total_haiku_cost']) - ov['total_vanilla_sonnet_cost']:.4f}** |")
+    lines.append("")
+
+    lines.append("> **Note**: Vanilla uses only Sonnet (subscription/quota). Flat uses Sonnet (quota) + Haiku API (billed) + Local (free). "
+                 "Total system tokens may be *higher* in flat mode because cheaper models handle the offloaded work. "
+                 "The value proposition is quota preservation (Sonnet OEQ) at low Haiku API cost, not total token reduction.\n")
+
+    lines.append("### Per-Task Token Breakdown\n")
+    lines.append("| Task | Diff | V.Son In | V.Son Out | F.Son In | F.Son Out | F.Haiku In | F.Haiku Out | F.Local In | F.Local Out | Son.Red |")
+    lines.append("|------|------|------:|------:|------:|------:|------:|------:|------:|------:|:---:|")
+    for r in results:
+        if r.get("is_repeat"):
+            continue
+        v = r["vanilla"]
+        f = r["flat"]
+        red = r.get("sonnet_reduction_pct", 0)
+        lines.append(f"| {r['name']} | {r['difficulty']} | "
+                     f"{v.get('sonnet_input_tok', 0):,} | {v.get('sonnet_output_tok', 0):,} | "
+                     f"{f.get('sonnet_input_tok', 0):,} | {f.get('sonnet_output_tok', 0):,} | "
+                     f"{f['haiku_input_tok']:,} | {f['haiku_output_tok']:,} | "
+                     f"{f.get('local_input_tok', 0):,} | {f.get('local_output_tok', 0):,} | {red}% |")
     lines.append("")
 
     lines.append("## Per-Task Detail\n")
@@ -664,6 +814,17 @@ def main():
     aggregates = compute_aggregates(results)
 
     # Metadata
+    # Capture model versions for reproducibility
+    cfg = get_config()
+    sonnet_model_id = cfg.get("reason_model", "sonnet")
+    haiku_model_id = cfg.get("gather_model", "haiku")
+    try:
+        claude_version = subprocess.run(
+            [cfg["claude_bin"], "--version"], capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+    except Exception:
+        claude_version = "unknown"
+
     metadata = {
         "timestamp": datetime.now().isoformat(),
         "repo": args.repo,
@@ -675,6 +836,19 @@ def main():
         "tasks_unique": len([r for r in results if not r.get("is_repeat")]),
         "tasks_repeated": len([r for r in results if r.get("is_repeat")]),
         "total_runs": len(run_pairs),
+        "model_versions": {
+            "sonnet_cli_model": sonnet_model_id,
+            "haiku_api_model": haiku_model_id,
+            "local_model": args.local_model,
+            "claude_cli_version": claude_version,
+        },
+        "measurement_notes": {
+            "sonnet_tokens": "Exact — from Claude CLI --output-format json (input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, total_cost_usd)",
+            "haiku_tokens": "Exact — from Anthropic API response usage field, accumulated across multi-round tool use",
+            "haiku_cost": "Calculated: (input * $0.80 + output * $4.00) / 1M — may differ from actual billing",
+            "local_tokens": "Exact — from Ollama API response (prompt_eval_count, eval_count)",
+            "sonnet_cost": "Exact — from Claude CLI total_cost_usd field (provider-reported)",
+        },
     }
 
     # Save JSON

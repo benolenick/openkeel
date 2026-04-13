@@ -1,0 +1,1225 @@
+{
+  "metadata": {
+    "timestamp": "2026-04-13T16:05:24.795011",
+    "repo": "/home/om/Desktop/openkeel2",
+    "repo_lines": 3328,
+    "repo_files": 21,
+    "local_model": "gemma4:e2b",
+    "random_seed": 42,
+    "total_wall_ms": 5989832,
+    "tasks_unique": 15,
+    "tasks_repeated": 2,
+    "total_runs": 34,
+    "model_versions": {
+      "sonnet_cli_model": "sonnet",
+      "haiku_api_model": "claude-haiku-4-5-20251001",
+      "local_model": "gemma4:e2b",
+      "claude_cli_version": "2.1.104 (Claude Code)"
+    },
+    "measurement_notes": {
+      "sonnet_tokens": "Exact \u2014 from Claude CLI --output-format json (input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens, total_cost_usd)",
+      "haiku_tokens": "Exact \u2014 from Anthropic API response usage field, accumulated across multi-round tool use",
+      "haiku_cost": "Calculated: (input * $0.80 + output * $4.00) / 1M \u2014 may differ from actual billing",
+      "local_tokens": "Exact \u2014 from Ollama API response (prompt_eval_count, eval_count)",
+      "sonnet_cost": "Exact \u2014 from Claude CLI total_cost_usd field (provider-reported)"
+    }
+  },
+  "run_order": [
+    "T6:flat",
+    "T10_R:flat",
+    "T11:vanilla",
+    "T2:vanilla",
+    "T4:vanilla",
+    "T13:vanilla",
+    "T3:flat",
+    "T9:vanilla",
+    "T10:vanilla",
+    "T9:flat",
+    "T5:vanilla",
+    "T3:vanilla",
+    "T4:flat",
+    "T8:flat",
+    "T8:vanilla",
+    "T13:flat",
+    "T7:vanilla",
+    "T12:vanilla",
+    "T1:vanilla",
+    "T15:vanilla",
+    "T2:flat",
+    "T10_R:vanilla",
+    "T1_R:vanilla",
+    "T14:flat",
+    "T5:flat",
+    "T11:flat",
+    "T1_R:flat",
+    "T12:flat",
+    "T6:vanilla",
+    "T14:vanilla",
+    "T15:flat",
+    "T10:flat",
+    "T1:flat",
+    "T7:flat"
+  ],
+  "aggregates": {
+    "overall": {
+      "n": 15,
+      "mean": 53.3,
+      "std": 16.9,
+      "min": 33.3,
+      "max": 66.7,
+      "total_vanilla_sonnet": 81,
+      "total_flat_sonnet": 34,
+      "total_vanilla_sonnet_input_tok": 116890,
+      "total_vanilla_sonnet_output_tok": 214933,
+      "total_vanilla_sonnet_cost": 18.098984,
+      "total_flat_sonnet_input_tok": 47005,
+      "total_flat_sonnet_output_tok": 60154,
+      "total_flat_sonnet_cost": 4.595002,
+      "total_haiku_cost": 0.7166,
+      "total_haiku_tokens": 774110,
+      "total_local_calls": 15,
+      "total_local_input_tok": 6744,
+      "total_local_output_tok": 5776,
+      "total_oeq_saved": 122200,
+      "overall_reduction_pct": 58.0
+    },
+    "by_difficulty": {
+      "easy": {
+        "n": 6,
+        "mean": 61.1,
+        "std": 13.6,
+        "min": 33.3,
+        "max": 66.7
+      },
+      "medium": {
+        "n": 6,
+        "mean": 61.1,
+        "std": 13.6,
+        "min": 33.3,
+        "max": 66.7
+      },
+      "hard": {
+        "n": 5,
+        "mean": 33.3,
+        "std": 0.0,
+        "min": 33.3,
+        "max": 33.3
+      }
+    },
+    "quality": {
+      "vanilla_mean": 7.5,
+      "flat_mean": 7.8,
+      "n_scored": 15
+    },
+    "reproducibility": {
+      "T1": {
+        "vanilla_sonnet_calls": [
+          6,
+          6
+        ],
+        "flat_sonnet_calls": [
+          2,
+          2
+        ],
+        "vanilla_wall_ms": [
+          239593,
+          251298
+        ],
+        "flat_wall_ms": [
+          69385,
+          71877
+        ],
+        "vanilla_output_lens": [
+          1519,
+          1476
+        ],
+        "sonnet_call_stable": true
+      },
+      "T10": {
+        "vanilla_sonnet_calls": [
+          6,
+          3
+        ],
+        "flat_sonnet_calls": [
+          2,
+          2
+        ],
+        "vanilla_wall_ms": [
+          282208,
+          203405
+        ],
+        "flat_wall_ms": [
+          169617,
+          129352
+        ],
+        "vanilla_output_lens": [
+          8969,
+          6008
+        ],
+        "sonnet_call_stable": false
+      }
+    }
+  },
+  "results": [
+    {
+      "task_id": "T1",
+      "name": "settings_defaults",
+      "difficulty": "easy",
+      "task": "What are the default settings values in the bubble settings module (bubble/settings.py)? List each key and its default value.",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 6,
+        "sonnet_wall_ms": 239583,
+        "sonnet_input_tok": 8103,
+        "sonnet_output_tok": 12635,
+        "sonnet_cache_create_tok": 146977,
+        "sonnet_cache_read_tok": 427964,
+        "sonnet_cost_usd": 0.893387,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 239593,
+        "output_len": 1519
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 30983,
+        "sonnet_input_tok": 2214,
+        "sonnet_output_tok": 1371,
+        "sonnet_cache_create_tok": 7591,
+        "sonnet_cache_read_tok": 56805,
+        "sonnet_cost_usd": 0.072715,
+        "haiku_calls": 6,
+        "haiku_input_tok": 48473,
+        "haiku_output_tok": 1558,
+        "haiku_cost": 0.04501,
+        "local_calls": 2,
+        "local_ms": 5232,
+        "local_input_tok": 992,
+        "local_output_tok": 522,
+        "wall_ms": 69385,
+        "output_len": 1570
+      },
+      "sonnet_reduction_pct": 66.7,
+      "quality": {
+        "a_is_vanilla": true,
+        "claude": {
+          "vanilla": {
+            "accuracy": 6,
+            "completeness": 8,
+            "specificity": 6,
+            "overall": 6
+          },
+          "flat": {
+            "accuracy": 9,
+            "completeness": 8,
+            "specificity": 9,
+            "overall": 9
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T1",
+      "name": "settings_defaults",
+      "difficulty": "easy",
+      "task": "What are the default settings values in the bubble settings module (bubble/settings.py)? List each key and its default value.",
+      "is_repeat": true,
+      "run_idx": 1,
+      "vanilla": {
+        "sonnet_calls": 6,
+        "sonnet_wall_ms": 251284,
+        "sonnet_input_tok": 9765,
+        "sonnet_output_tok": 13555,
+        "sonnet_cache_create_tok": 236835,
+        "sonnet_cache_read_tok": 488665,
+        "sonnet_cost_usd": 1.267351,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 251298,
+        "output_len": 1476
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 39708,
+        "sonnet_input_tok": 757,
+        "sonnet_output_tok": 1313,
+        "sonnet_cache_create_tok": 8169,
+        "sonnet_cache_read_tok": 97842,
+        "sonnet_cost_usd": 0.081952,
+        "haiku_calls": 4,
+        "haiku_input_tok": 296,
+        "haiku_output_tok": 117,
+        "haiku_cost": 0.000705,
+        "local_calls": 4,
+        "local_ms": 10045,
+        "local_input_tok": 520,
+        "local_output_tok": 1038,
+        "wall_ms": 71877,
+        "output_len": 379
+      },
+      "sonnet_reduction_pct": 66.7,
+      "quality": {
+        "a_is_vanilla": true,
+        "claude": {
+          "vanilla": {
+            "accuracy": 6,
+            "completeness": 9,
+            "specificity": 9,
+            "overall": 6
+          },
+          "flat": {
+            "accuracy": 9,
+            "completeness": 8,
+            "specificity": 7,
+            "overall": 8
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T10",
+      "name": "theme_system",
+      "difficulty": "medium",
+      "task": "Trace the full theme/styling system: how does changing a color in settings propagate to the terminal, toolbar, dials, and status bar? What CSS selectors are generated?",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 6,
+        "sonnet_wall_ms": 282199,
+        "sonnet_input_tok": 8153,
+        "sonnet_output_tok": 15632,
+        "sonnet_cache_create_tok": 228833,
+        "sonnet_cache_read_tok": 410959,
+        "sonnet_cost_usd": 1.24035,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 282208,
+        "output_len": 8969
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 135674,
+        "sonnet_input_tok": 3395,
+        "sonnet_output_tok": 6855,
+        "sonnet_cache_create_tok": 121150,
+        "sonnet_cache_read_tok": 327490,
+        "sonnet_cost_usd": 0.665569,
+        "haiku_calls": 6,
+        "haiku_input_tok": 49198,
+        "haiku_output_tok": 1665,
+        "haiku_cost": 0.046018,
+        "local_calls": 2,
+        "local_ms": 3588,
+        "local_input_tok": 65,
+        "local_output_tok": 369,
+        "wall_ms": 169617,
+        "output_len": 6658
+      },
+      "sonnet_reduction_pct": 66.7,
+      "quality": {
+        "a_is_vanilla": true,
+        "claude": {
+          "vanilla": {
+            "accuracy": 4,
+            "completeness": 6,
+            "specificity": 7,
+            "overall": 5
+          },
+          "flat": {
+            "accuracy": 8,
+            "completeness": 7,
+            "specificity": 8,
+            "overall": 8
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T10",
+      "name": "theme_system",
+      "difficulty": "medium",
+      "task": "Trace the full theme/styling system: how does changing a color in settings propagate to the terminal, toolbar, dials, and status bar? What CSS selectors are generated?",
+      "is_repeat": true,
+      "run_idx": 1,
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 100619,
+        "sonnet_input_tok": 4382,
+        "sonnet_output_tok": 4862,
+        "sonnet_cache_create_tok": 105630,
+        "sonnet_cache_read_tok": 161669,
+        "sonnet_cost_usd": 0.530689,
+        "haiku_calls": 8,
+        "haiku_input_tok": 54248,
+        "haiku_output_tok": 2647,
+        "haiku_cost": 0.053986,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 129352,
+        "output_len": 4619
+      },
+      "vanilla": {
+        "sonnet_calls": 3,
+        "sonnet_wall_ms": 203399,
+        "sonnet_input_tok": 4882,
+        "sonnet_output_tok": 13154,
+        "sonnet_cache_create_tok": 279563,
+        "sonnet_cache_read_tok": 313273,
+        "sonnet_cost_usd": 1.354299,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 203405,
+        "output_len": 6008
+      },
+      "sonnet_reduction_pct": 33.3,
+      "quality": {
+        "a_is_vanilla": true
+      }
+    },
+    {
+      "task_id": "T11",
+      "name": "hyphae_integration",
+      "difficulty": "medium",
+      "task": "How does the hyphae client integrate with the rest of OpenKeel? Trace the endpoint resolution, the recall/remember API, and where hyphae status is displayed in the GUI.",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 6,
+        "sonnet_wall_ms": 295150,
+        "sonnet_input_tok": 9466,
+        "sonnet_output_tok": 13654,
+        "sonnet_cache_create_tok": 279634,
+        "sonnet_cache_read_tok": 445640,
+        "sonnet_cost_usd": 1.415528,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 295164,
+        "output_len": 5654
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 61118,
+        "sonnet_input_tok": 570,
+        "sonnet_output_tok": 355,
+        "sonnet_cache_create_tok": 792,
+        "sonnet_cache_read_tok": 8835,
+        "sonnet_cost_usd": 0.04624,
+        "haiku_calls": 8,
+        "haiku_input_tok": 75926,
+        "haiku_output_tok": 3996,
+        "haiku_cost": 0.076725,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 116068,
+        "output_len": 4908
+      },
+      "sonnet_reduction_pct": 66.7,
+      "quality": {
+        "a_is_vanilla": false,
+        "claude": {
+          "vanilla": {
+            "accuracy": 7,
+            "completeness": 8,
+            "specificity": 8,
+            "overall": 8
+          },
+          "flat": {
+            "accuracy": 3,
+            "completeness": 5,
+            "specificity": 4,
+            "overall": 3
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T12",
+      "name": "startup_sequence",
+      "difficulty": "medium",
+      "task": "Trace the full startup sequence when a user runs 'openkeel' with no arguments. What modules load, what timers start, what connections are checked, and in what order?",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 6,
+        "sonnet_wall_ms": 304682,
+        "sonnet_input_tok": 10712,
+        "sonnet_output_tok": 15969,
+        "sonnet_cache_create_tok": 201474,
+        "sonnet_cache_read_tok": 427176,
+        "sonnet_cost_usd": 1.155351,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 304690,
+        "output_len": 5716
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 53527,
+        "sonnet_input_tok": 3632,
+        "sonnet_output_tok": 2299,
+        "sonnet_cache_create_tok": 986,
+        "sonnet_cache_read_tok": 18462,
+        "sonnet_cost_usd": 0.054617,
+        "haiku_calls": 8,
+        "haiku_input_tok": 76415,
+        "haiku_output_tok": 2875,
+        "haiku_cost": 0.072632,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 85866,
+        "output_len": 6054
+      },
+      "sonnet_reduction_pct": 66.7,
+      "quality": {
+        "a_is_vanilla": true
+      }
+    },
+    {
+      "task_id": "T13",
+      "name": "security_audit",
+      "difficulty": "hard",
+      "task": "Audit the codebase for security issues: the terminal spawns a shell, settings are stored as JSON, the session watcher reads arbitrary JSONL. What prevents command injection, path traversal, or data exfiltration?",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 3,
+        "sonnet_wall_ms": 193030,
+        "sonnet_input_tok": 3187,
+        "sonnet_output_tok": 9746,
+        "sonnet_cache_create_tok": 84286,
+        "sonnet_cache_read_tok": 171458,
+        "sonnet_cost_usd": 0.523261,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 193035,
+        "output_len": 6127
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 149642,
+        "sonnet_input_tok": 2604,
+        "sonnet_output_tok": 6855,
+        "sonnet_cache_create_tok": 182082,
+        "sonnet_cache_read_tok": 245609,
+        "sonnet_cost_usd": 0.867127,
+        "haiku_calls": 2,
+        "haiku_input_tok": 32770,
+        "haiku_output_tok": 844,
+        "haiku_cost": 0.029592,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 157720,
+        "output_len": 6837
+      },
+      "sonnet_reduction_pct": 33.3,
+      "quality": {
+        "a_is_vanilla": true,
+        "claude": {
+          "vanilla": {
+            "accuracy": 7,
+            "completeness": 8,
+            "specificity": 7,
+            "overall": 7
+          },
+          "flat": {
+            "accuracy": 9,
+            "completeness": 9,
+            "specificity": 9,
+            "overall": 9
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T14",
+      "name": "failure_modes",
+      "difficulty": "hard",
+      "task": "Analyze all failure modes when Ollama is unavailable or returns garbage. Trace through ollama.py, the GUI status dots, and the settings dialog. Where does fallback happen? Where could it silently fail?",
+      "is_repeat": false,
+      "run_idx": 0,
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 85666,
+        "sonnet_input_tok": 1456,
+        "sonnet_output_tok": 4516,
+        "sonnet_cache_create_tok": 44697,
+        "sonnet_cache_read_tok": 140245,
+        "sonnet_cost_usd": 0.281795,
+        "haiku_calls": 2,
+        "haiku_input_tok": 31944,
+        "haiku_output_tok": 947,
+        "haiku_cost": 0.029343,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 94420,
+        "output_len": 5897
+      },
+      "vanilla": {
+        "sonnet_calls": 3,
+        "sonnet_wall_ms": 209558,
+        "sonnet_input_tok": 3877,
+        "sonnet_output_tok": 11130,
+        "sonnet_cache_create_tok": 275711,
+        "sonnet_cache_read_tok": 300383,
+        "sonnet_cost_usd": 1.302612,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 209562,
+        "output_len": 4363
+      },
+      "sonnet_reduction_pct": 33.3,
+      "quality": {
+        "a_is_vanilla": false,
+        "claude": {
+          "vanilla": {
+            "accuracy": 8,
+            "completeness": 9,
+            "specificity": 9,
+            "overall": 9
+          },
+          "flat": {
+            "accuracy": 7,
+            "completeness": 8,
+            "specificity": 7,
+            "overall": 7
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T15",
+      "name": "scaling_limits",
+      "difficulty": "hard",
+      "task": "If this codebase grew to 50,000 lines across 200 files, what would break first? Analyze get_repo_tree, prompt sizes, the session watcher's polling, and the GUI refresh timer. Propose fixes.",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 3,
+        "sonnet_wall_ms": 192186,
+        "sonnet_input_tok": 3181,
+        "sonnet_output_tok": 10272,
+        "sonnet_cache_create_tok": 113070,
+        "sonnet_cache_read_tok": 270762,
+        "sonnet_cost_usd": 0.668864,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 192193,
+        "output_len": 5167
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 137930,
+        "sonnet_input_tok": 3423,
+        "sonnet_output_tok": 7722,
+        "sonnet_cache_create_tok": 39235,
+        "sonnet_cache_read_tok": 198570,
+        "sonnet_cost_usd": 0.332801,
+        "haiku_calls": 2,
+        "haiku_input_tok": 15264,
+        "haiku_output_tok": 874,
+        "haiku_cost": 0.015707,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 146370,
+        "output_len": 8499
+      },
+      "sonnet_reduction_pct": 33.3,
+      "quality": {
+        "a_is_vanilla": false,
+        "claude": {
+          "vanilla": {
+            "accuracy": 7,
+            "completeness": 8,
+            "specificity": 9,
+            "overall": 8
+          },
+          "flat": {
+            "accuracy": 7,
+            "completeness": 8,
+            "specificity": 8,
+            "overall": 7
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T2",
+      "name": "launch_trace",
+      "difficulty": "medium",
+      "task": "Trace the data flow when a user clicks the Launch Claude button. What functions are called, in what files, and what happens in the terminal PTY?",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 6,
+        "sonnet_wall_ms": 373079,
+        "sonnet_input_tok": 10620,
+        "sonnet_output_tok": 18556,
+        "sonnet_cache_create_tok": 467239,
+        "sonnet_cache_read_tok": 641305,
+        "sonnet_cost_usd": 2.254738,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 373089,
+        "output_len": 5080
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 83283,
+        "sonnet_input_tok": 3766,
+        "sonnet_output_tok": 3295,
+        "sonnet_cache_create_tok": 91345,
+        "sonnet_cache_read_tok": 161041,
+        "sonnet_cost_usd": 0.451579,
+        "haiku_calls": 8,
+        "haiku_input_tok": 83469,
+        "haiku_output_tok": 2677,
+        "haiku_cost": 0.077483,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 114772,
+        "output_len": 4265
+      },
+      "sonnet_reduction_pct": 66.7,
+      "quality": {
+        "a_is_vanilla": false,
+        "claude": {
+          "vanilla": {
+            "accuracy": 9,
+            "completeness": 9,
+            "specificity": 9,
+            "overall": 9
+          },
+          "flat": {
+            "accuracy": 7,
+            "completeness": 8,
+            "specificity": 8,
+            "overall": 7
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T3",
+      "name": "token_pipeline",
+      "difficulty": "medium",
+      "task": "Explain the token tracking pipeline: how does OpenKeel detect and count tokens from a running Claude Code session? Trace from the JSONL file watcher to the GUI dials.",
+      "is_repeat": false,
+      "run_idx": 0,
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 67670,
+        "sonnet_input_tok": 3721,
+        "sonnet_output_tok": 3279,
+        "sonnet_cache_create_tok": 24173,
+        "sonnet_cache_read_tok": 92272,
+        "sonnet_cost_usd": 0.178678,
+        "haiku_calls": 8,
+        "haiku_input_tok": 64646,
+        "haiku_output_tok": 2284,
+        "haiku_cost": 0.060853,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 97206,
+        "output_len": 5650
+      },
+      "vanilla": {
+        "sonnet_calls": 6,
+        "sonnet_wall_ms": 464745,
+        "sonnet_input_tok": 11935,
+        "sonnet_output_tok": 26390,
+        "sonnet_cache_create_tok": 414822,
+        "sonnet_cache_read_tok": 696699,
+        "sonnet_cost_usd": 2.196247,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 464757,
+        "output_len": 7864
+      },
+      "sonnet_reduction_pct": 66.7,
+      "quality": {
+        "a_is_vanilla": true,
+        "claude": {
+          "vanilla": {
+            "accuracy": 7,
+            "completeness": 6,
+            "specificity": 8,
+            "overall": 7
+          },
+          "flat": {
+            "accuracy": 8,
+            "completeness": 9,
+            "specificity": 9,
+            "overall": 9
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T4",
+      "name": "concurrency_bugs",
+      "difficulty": "hard",
+      "task": "Review session_watcher.py and quota.py for potential bugs. What happens if the JSONL file is deleted mid-session? If two Claude sessions run simultaneously? If the quota file is corrupted mid-write?",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 3,
+        "sonnet_wall_ms": 345263,
+        "sonnet_input_tok": 3945,
+        "sonnet_output_tok": 13930,
+        "sonnet_cache_create_tok": 206628,
+        "sonnet_cache_read_tok": 429811,
+        "sonnet_cost_usd": 1.124583,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 345268,
+        "output_len": 5315
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 100517,
+        "sonnet_input_tok": 4352,
+        "sonnet_output_tok": 4801,
+        "sonnet_cache_create_tok": 30892,
+        "sonnet_cache_read_tok": 141447,
+        "sonnet_cost_usd": 0.24335,
+        "haiku_calls": 8,
+        "haiku_input_tok": 70782,
+        "haiku_output_tok": 3109,
+        "haiku_cost": 0.069062,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 131477,
+        "output_len": 4400
+      },
+      "sonnet_reduction_pct": 33.3,
+      "quality": {
+        "a_is_vanilla": true,
+        "claude": {
+          "vanilla": {
+            "accuracy": 7,
+            "completeness": 9,
+            "specificity": 8,
+            "overall": 8
+          },
+          "flat": {
+            "accuracy": 8,
+            "completeness": 9,
+            "specificity": 9,
+            "overall": 9
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T5",
+      "name": "cost_estimator_design",
+      "difficulty": "hard",
+      "task": "Design a cost estimator that predicts task cost before running it based on repo size and task complexity. Which modules need changes? What's the minimal implementation?",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 3,
+        "sonnet_wall_ms": 192237,
+        "sonnet_input_tok": 2430,
+        "sonnet_output_tok": 11781,
+        "sonnet_cache_create_tok": 55410,
+        "sonnet_cache_read_tok": 161454,
+        "sonnet_cost_usd": 0.440229,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 192242,
+        "output_len": 7307
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 76936,
+        "sonnet_input_tok": 1687,
+        "sonnet_output_tok": 4103,
+        "sonnet_cache_create_tok": 24680,
+        "sonnet_cache_read_tok": 104180,
+        "sonnet_cost_usd": 0.19041,
+        "haiku_calls": 2,
+        "haiku_input_tok": 19910,
+        "haiku_output_tok": 879,
+        "haiku_cost": 0.019444,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 85455,
+        "output_len": 6340
+      },
+      "sonnet_reduction_pct": 33.3,
+      "quality": {
+        "a_is_vanilla": false,
+        "claude": {
+          "vanilla": {
+            "accuracy": 8,
+            "completeness": 8,
+            "specificity": 9,
+            "overall": 8
+          },
+          "flat": {
+            "accuracy": 5,
+            "completeness": 6,
+            "specificity": 8,
+            "overall": 6
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T6",
+      "name": "color_palette",
+      "difficulty": "easy",
+      "task": "What colors does the BPH dial use to indicate different burn rates? Trace through the _value_color method and list the color progression from low to high BPH.",
+      "is_repeat": false,
+      "run_idx": 0,
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 43540,
+        "sonnet_input_tok": 3099,
+        "sonnet_output_tok": 1539,
+        "sonnet_cache_create_tok": 11826,
+        "sonnet_cache_read_tok": 70810,
+        "sonnet_cost_usd": 0.097973,
+        "haiku_calls": 7,
+        "haiku_input_tok": 49109,
+        "haiku_output_tok": 2301,
+        "haiku_cost": 0.048491,
+        "local_calls": 1,
+        "local_ms": 1834,
+        "local_input_tok": 58,
+        "local_output_tok": 189,
+        "wall_ms": 82149,
+        "output_len": 1598
+      },
+      "vanilla": {
+        "sonnet_calls": 3,
+        "sonnet_wall_ms": 44802,
+        "sonnet_input_tok": 1795,
+        "sonnet_output_tok": 2617,
+        "sonnet_cache_create_tok": 21364,
+        "sonnet_cache_read_tok": 140064,
+        "sonnet_cost_usd": 0.166774,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 44807,
+        "output_len": 1114
+      },
+      "sonnet_reduction_pct": 33.3,
+      "quality": {
+        "a_is_vanilla": true,
+        "claude": {
+          "vanilla": {
+            "accuracy": 8,
+            "completeness": 9,
+            "specificity": 9,
+            "overall": 9
+          },
+          "flat": {
+            "accuracy": 9,
+            "completeness": 10,
+            "specificity": 9,
+            "overall": 9
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T7",
+      "name": "key_bindings",
+      "difficulty": "easy",
+      "task": "What keyboard shortcuts and special key handlers does the terminal widget support? List each key combination and what it does.",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 6,
+        "sonnet_wall_ms": 132033,
+        "sonnet_input_tok": 8216,
+        "sonnet_output_tok": 6425,
+        "sonnet_cache_create_tok": 91585,
+        "sonnet_cache_read_tok": 248634,
+        "sonnet_cost_usd": 0.539057,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 132045,
+        "output_len": 2223
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 46516,
+        "sonnet_input_tok": 2065,
+        "sonnet_output_tok": 2532,
+        "sonnet_cache_create_tok": 29480,
+        "sonnet_cache_read_tok": 82980,
+        "sonnet_cost_usd": 0.179619,
+        "haiku_calls": 5,
+        "haiku_input_tok": 16320,
+        "haiku_output_tok": 836,
+        "haiku_cost": 0.0164,
+        "local_calls": 3,
+        "local_ms": 15681,
+        "local_input_tok": 1081,
+        "local_output_tok": 1704,
+        "wall_ms": 86966,
+        "output_len": 2433
+      },
+      "sonnet_reduction_pct": 66.7,
+      "quality": {
+        "a_is_vanilla": false,
+        "claude": {
+          "vanilla": {
+            "accuracy": 6,
+            "completeness": 8,
+            "specificity": 9,
+            "overall": 7
+          },
+          "flat": {
+            "accuracy": 9,
+            "completeness": 9,
+            "specificity": 8,
+            "overall": 9
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T8",
+      "name": "quota_constants",
+      "difficulty": "easy",
+      "task": "What are the quota tracking constants (OEQ per call, weekly limit, file path, auto-reset logic)? Where are they defined in quota.py?",
+      "is_repeat": false,
+      "run_idx": 0,
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 54682,
+        "sonnet_input_tok": 3141,
+        "sonnet_output_tok": 2400,
+        "sonnet_cache_create_tok": 28659,
+        "sonnet_cache_read_tok": 122797,
+        "sonnet_cost_usd": 0.189733,
+        "haiku_calls": 7,
+        "haiku_input_tok": 22760,
+        "haiku_output_tok": 1446,
+        "haiku_cost": 0.023992,
+        "local_calls": 1,
+        "local_ms": 3748,
+        "local_input_tok": 1148,
+        "local_output_tok": 360,
+        "wall_ms": 80608,
+        "output_len": 1794
+      },
+      "vanilla": {
+        "sonnet_calls": 6,
+        "sonnet_wall_ms": 290085,
+        "sonnet_input_tok": 9315,
+        "sonnet_output_tok": 12414,
+        "sonnet_cache_create_tok": 176373,
+        "sonnet_cache_read_tok": 602177,
+        "sonnet_cost_usd": 1.056207,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 290094,
+        "output_len": 3032
+      },
+      "sonnet_reduction_pct": 66.7,
+      "quality": {
+        "a_is_vanilla": true,
+        "claude": {
+          "vanilla": {
+            "accuracy": 6,
+            "completeness": 9,
+            "specificity": 9,
+            "overall": 7
+          },
+          "flat": {
+            "accuracy": 8,
+            "completeness": 8,
+            "specificity": 8,
+            "overall": 8
+          }
+        }
+      }
+    },
+    {
+      "task_id": "T9",
+      "name": "model_lanes",
+      "difficulty": "easy",
+      "task": "What model lanes does the MiniDialWidget track, what color is assigned to each, and what is the compact number formatting logic?",
+      "is_repeat": false,
+      "run_idx": 0,
+      "vanilla": {
+        "sonnet_calls": 6,
+        "sonnet_wall_ms": 153082,
+        "sonnet_input_tok": 7308,
+        "sonnet_output_tok": 7073,
+        "sonnet_cache_create_tok": 74141,
+        "sonnet_cache_read_tok": 313661,
+        "sonnet_cost_usd": 0.500146,
+        "haiku_calls": 0,
+        "haiku_input_tok": 0,
+        "haiku_output_tok": 0,
+        "haiku_cost": 0.0,
+        "local_calls": 0,
+        "local_ms": 0,
+        "local_input_tok": 0,
+        "local_output_tok": 0,
+        "wall_ms": 153092,
+        "output_len": 2403
+      },
+      "flat": {
+        "sonnet_calls": 2,
+        "sonnet_wall_ms": 54984,
+        "sonnet_input_tok": 2741,
+        "sonnet_output_tok": 2057,
+        "sonnet_cache_create_tok": 15517,
+        "sonnet_cache_read_tok": 109628,
+        "sonnet_cost_usd": 0.130155,
+        "haiku_calls": 6,
+        "haiku_input_tok": 32167,
+        "haiku_output_tok": 1358,
+        "haiku_cost": 0.031166,
+        "local_calls": 2,
+        "local_ms": 16437,
+        "local_input_tok": 2880,
+        "local_output_tok": 1594,
+        "wall_ms": 103932,
+        "output_len": 1397
+      },
+      "sonnet_reduction_pct": 66.7,
+      "quality": {
+        "a_is_vanilla": true,
+        "claude": {
+          "vanilla": {
+            "accuracy": 9,
+            "completeness": 10,
+            "specificity": 10,
+            "overall": 9
+          },
+          "flat": {
+            "accuracy": 10,
+            "completeness": 9,
+            "specificity": 9,
+            "overall": 9
+          }
+        }
+      }
+    }
+  ]
+}
